@@ -1,0 +1,11 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "cd mesh-network-p2p/mesh-network-p2p && npm install && npm run build",
+  "outputDirectory": "mesh-network-p2p/mesh-network-p2p/dist",
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
+}
