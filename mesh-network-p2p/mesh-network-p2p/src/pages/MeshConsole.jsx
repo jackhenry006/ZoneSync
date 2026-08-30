@@ -12,7 +12,13 @@ export function MeshConsole() {
   const [socket] = useState(() => io(import.meta.env.VITE_BACKEND_URL || undefined));
   const [joined, setJoined] = useState(false);
   const [online, setOnline] = useState(true);
-  const [name, setName] = useState("");
+  const [name, setName] = useState(() => {
+    try {
+      return localStorage.getItem("mesh_node_name") || "";
+    } catch (e) {
+      return "";
+    }
+  });
   const [selfId] = useState(() => uid());
   const meshRef = useRef(null);
   const [graph, setGraph] = useState({ nodes: [], links: [] });
@@ -41,6 +47,9 @@ export function MeshConsole() {
 
   function join() {
     if (!name.trim()) return;
+    try {
+      localStorage.setItem("mesh_node_name", name.trim());
+    } catch (e) {}
     const mesh = new MeshNode(selfId, name.trim(), socket, {
       onTopology: (g) => setGraph(g),
       onLog: (entry) => setLog(l => [{ ...entry, id: uid() }, ...l].slice(0, 60)),
@@ -364,6 +373,34 @@ export function MeshConsole() {
     }
   }
 
+  function handleChangeName() {
+    const input = window.prompt("Enter your new device display name:", name);
+    if (!input || !input.trim() || input.trim() === name) return;
+    const nextName = input.trim();
+    setName(nextName);
+    try {
+      localStorage.setItem("mesh_node_name", nextName);
+    } catch (e) {}
+    if (meshRef.current) {
+      meshRef.current.name = nextName;
+      meshRef.current.register();
+    }
+  }
+
+  function handleManualConnect() {
+    const input = window.prompt("Enter Peer Node ID or Display Name to connect directly:");
+    if (!input || !input.trim()) return;
+    const targetIdOrName = input.trim();
+    const existingNode = graph.nodes.find(
+      n => n.id === targetIdOrName || n.name.toLowerCase() === targetIdOrName.toLowerCase()
+    );
+    const peerId = existingNode ? existingNode.id : targetIdOrName;
+    const peerName = existingNode ? existingNode.name : targetIdOrName;
+    if (meshRef.current) {
+      meshRef.current.connectToPeer(peerId, peerName, true);
+    }
+  }
+
   return (
     <div className="app">
       <MessagePopups
@@ -393,6 +430,8 @@ export function MeshConsole() {
         online={online}
         goOffline={goOffline}
         goOnline={goOnline}
+        onChangeName={handleChangeName}
+        onManualConnect={handleManualConnect}
       />
       <div className="stage">
         {/* Top Command Bar */}

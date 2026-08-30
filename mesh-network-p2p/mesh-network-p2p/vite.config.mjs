@@ -39,20 +39,35 @@ export default defineConfig({
             console.error('[vite proxy error]', err);
           });
           proxy.on('open', (proxySocket) => {
-            proxySocket.on('error', (err) => {
-              if (isIgnoredError(err)) return;
-              console.error('[vite ws proxySocket error]', err);
-            });
+            if (proxySocket && typeof proxySocket.emit === 'function') {
+              const origEmit = proxySocket.emit;
+              proxySocket.emit = function (event, ...args) {
+                if (event === 'error' && isIgnoredError(args[0])) {
+                  return true;
+                }
+                return origEmit.apply(this, [event, ...args]);
+              };
+            }
           });
           proxy.on('proxyReqWs', (proxyReq, _req, socket) => {
-            proxyReq.on('error', (err) => {
-              if (isIgnoredError(err)) return;
-              console.error('[vite ws proxyReq error]', err);
-            });
-            socket.on('error', (err) => {
-              if (isIgnoredError(err)) return;
-              console.error('[vite ws socket error]', err);
-            });
+            if (proxyReq && typeof proxyReq.emit === 'function') {
+              const origEmit = proxyReq.emit;
+              proxyReq.emit = function (event, ...args) {
+                if (event === 'error' && isIgnoredError(args[0])) {
+                  return true;
+                }
+                return origEmit.apply(this, [event, ...args]);
+              };
+            }
+            if (socket && typeof socket.emit === 'function') {
+              const origEmit = socket.emit;
+              socket.emit = function (event, ...args) {
+                if (event === 'error' && isIgnoredError(args[0])) {
+                  return true;
+                }
+                return origEmit.apply(this, [event, ...args]);
+              };
+            }
           });
         },
       },

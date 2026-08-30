@@ -21,8 +21,11 @@ export function Sidebar({
   online,
   goOffline,
   goOnline,
+  onChangeName,
+  onManualConnect,
 }) {
   const connectedCount = peerStates.filter(p => p.state === "connected").length;
+  const selfNode = graph.nodes.find(n => n.id === selfId);
 
   return (
     <div className="sidebar" style={{ padding: "14px", gap: "12px", display: "flex", flexDirection: "column" }}>
@@ -30,16 +33,55 @@ export function Sidebar({
       {/* CARD 1: Brand & Network Header */}
       <div className="sidebar-card brand-card">
         <div className="mark">CRISISLINK // P2P-AI</div>
-        <h1 style={{ fontSize: 19, margin: "4px 0 6px" }}>Mesh Console</h1>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", margin: "4px 0 6px" }}>
+          <h1 style={{ fontSize: 19, margin: 0 }}>Mesh Console</h1>
+          {onChangeName && (
+            <button
+              onClick={onChangeName}
+              style={{
+                background: "rgba(51, 214, 166, 0.12)",
+                border: "1px solid rgba(51, 214, 166, 0.3)",
+                color: "var(--signal)",
+                borderRadius: "6px",
+                padding: "3px 8px",
+                fontSize: "11px",
+                fontWeight: 700,
+                cursor: "pointer"
+              }}
+              title="Change your device display name"
+            >
+              ✏️ Rename
+            </button>
+          )}
+        </div>
         <div className="sub" style={{ fontSize: 13, color: "var(--muted)" }}>
           <span style={{ color: "var(--signal)", fontWeight: 800 }}>{connectedCount}</span> WebRTC Links · <span style={{ fontWeight: 800, color: "var(--text)" }}>{graph.nodes.length}</span> Nodes Known
+          {selfNode && <div style={{ fontSize: 11.5, color: "var(--text-secondary)", marginTop: 2 }}>Device Name: <strong>{selfNode.name}</strong></div>}
         </div>
       </div>
 
       {/* CARD 2: Known Mesh Nodes Manager */}
       <div className="sidebar-card">
-        <div className="card-header-sm">
+        <div className="card-header-sm" style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <span className="card-title-sm">🌐 Known Mesh Nodes ({graph.nodes.length})</span>
+          {onManualConnect && (
+            <button
+              onClick={onManualConnect}
+              style={{
+                background: "rgba(75, 158, 255, 0.15)",
+                border: "1px solid rgba(75, 158, 255, 0.35)",
+                color: "var(--accent-blue)",
+                borderRadius: "6px",
+                padding: "2px 7px",
+                fontSize: "11px",
+                fontWeight: 700,
+                cursor: "pointer"
+              }}
+              title="Connect directly to a peer by name or ID"
+            >
+              ➕ Connect
+            </button>
+          )}
         </div>
 
         <div className="node-list">
@@ -59,11 +101,19 @@ export function Sidebar({
           })}
         </div>
 
-        <button className="tiny-btn" style={{ width: "100%", marginTop: 10, padding: "9px", fontSize: 12.5, fontWeight: 700 }}
-          id="manage-links-btn"
-          onClick={() => setLinkMode(m => !m)}>
-          {linkMode ? "✓ Done Editing Links" : "⚡ Manage Direct Links"}
-        </button>
+        <div style={{ display: "flex", gap: "6px", marginTop: 10 }}>
+          <button className="tiny-btn" style={{ flex: 1, padding: "9px", fontSize: 12, fontWeight: 700 }}
+            id="manage-links-btn"
+            onClick={() => setLinkMode(m => !m)}>
+            {linkMode ? "✓ Done Links" : "⚡ Manage Links"}
+          </button>
+          {onManualConnect && (
+            <button className="tiny-btn" style={{ padding: "9px 12px", fontSize: 12, fontWeight: 700, color: "var(--accent-blue)" }}
+              onClick={onManualConnect}>
+              ➕ Connect Peer
+            </button>
+          )}
+        </div>
       </div>
 
       {/* CARD 3: End-to-End Security */}
