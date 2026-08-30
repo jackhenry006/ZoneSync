@@ -6,6 +6,7 @@ import { MeshCanvas } from '../components/MeshCanvas.jsx';
 import { JoinModal } from '../components/JoinModal.jsx';
 import { Sidebar } from '../components/Sidebar.jsx';
 import { Composer } from '../components/Composer.jsx';
+import { MessagePopups } from '../components/MessagePopups.jsx';
 
 export function MeshConsole() {
   const [socket] = useState(() => io(import.meta.env.VITE_BACKEND_URL || undefined));
@@ -17,6 +18,7 @@ export function MeshConsole() {
   const [graph, setGraph] = useState({ nodes: [], links: [] });
   const [peerStates, setPeerStates] = useState([]);
   const [log, setLog] = useState([]);
+  const [popups, setPopups] = useState([]);
   const [target, setTarget] = useState("");
   const [text, setText] = useState("");
   const [activeHop, setActiveHop] = useState(null);
@@ -59,6 +61,26 @@ export function MeshConsole() {
           : " · 🔓 unencrypted";
         const meta = `received from ${envelope.from}${lockTag}${loc ? ` · 📍 ${loc.lat.toFixed(5)}, ${loc.lng.toFixed(5)} (±${loc.accuracy}m)` : ""}`;
         setLog(l => [{ id: uid(), tag: "delivered", text: `"${envelope.text}"`, meta, mapUrl: loc ? `https://www.google.com/maps?q=${loc.lat},${loc.lng}` : null }, ...l].slice(0, 60));
+
+        const senderNode = meshRef.current?.linkState.get(envelope.from) || graph.nodes.find(n => n.id === envelope.from);
+        const fromName = senderNode ? senderNode.name : envelope.from;
+
+        setPopups(prev => [
+          {
+            id: uid(),
+            from: envelope.from,
+            fromName: fromName,
+            urgency: envelope.urgency,
+            text: envelope.text,
+            location: loc,
+            mapUrl: loc ? `https://www.google.com/maps?q=${loc.lat},${loc.lng}` : null,
+            encrypted: envelope.encrypted,
+            verified: envelope.verified,
+            timestamp: Date.now(),
+            path: envelope.path,
+          },
+          ...prev
+        ].slice(0, 10));
       },
       onMediaProgress: ({ mediaId, kind, received, total }) => {
         setMediaProgress(p => ({ ...p, [mediaId]: { kind, received, total } }));
@@ -77,6 +99,29 @@ export function MeshConsole() {
           mediaKind: payload.kind, mediaUrl: payload.dataUrl, mimeType: payload.mimeType,
           mapUrl: loc ? `https://www.google.com/maps?q=${loc.lat},${loc.lng}` : null,
         }, ...l].slice(0, 60));
+
+        const senderNode = meshRef.current?.linkState.get(payload.from) || graph.nodes.find(n => n.id === payload.from);
+        const fromName = senderNode ? senderNode.name : payload.from;
+
+        setPopups(prev => [
+          {
+            id: uid(),
+            from: payload.from,
+            fromName: fromName,
+            urgency: payload.urgency,
+            text: payload.caption || (payload.kind === "image" ? "Sent an image" : "Sent a voice message"),
+            mediaKind: payload.kind,
+            mediaUrl: payload.dataUrl,
+            mimeType: payload.mimeType,
+            location: loc,
+            mapUrl: loc ? `https://www.google.com/maps?q=${loc.lat},${loc.lng}` : null,
+            encrypted: payload.encrypted,
+            verified: payload.verified,
+            timestamp: Date.now(),
+            path: payload.path,
+          },
+          ...prev
+        ].slice(0, 10));
       },
       onPeerState: () => {
         const mesh = meshRef.current;
@@ -305,12 +350,28 @@ export function MeshConsole() {
   const liveTerms = meshRef.current ? meshRef.current.aiTerms : URGENT_TERMS;
   const urgencyPreview = text.trim() ? classifyUrgency(text, liveTerms).level : null;
 
-  if (!joined) {
-    return <JoinModal name={name} setName={setName} onJoin={join} />;
+  function handleDismissPopup(id) {
+    setPopups(prev => prev.filter(p => p.id !== id));
+  }
+
+  function handleClearAllPopups() {
+    setPopups([]);
+  }
+
+  function handleReplyToSender(senderId) {
+    if (senderId) {
+      setTarget(senderId);
+    }
   }
 
   return (
     <div className="app">
+      <MessagePopups
+        popups={popups}
+        onDismiss={handleDismissPopup}
+        onClearAll={handleClearAllPopups}
+        onReply={handleReplyToSender}
+      />
       <Sidebar
         graph={graph}
         selfId={selfId}
