@@ -12,7 +12,9 @@ export function Composer({
   urgencyPreview,
   pickImage,
   toggleRecording,
+  cancelRecording,
   recording,
+  recordSecs = 0,
   mediaProgress,
   send,
   joined,
@@ -28,22 +30,6 @@ export function Composer({
 }) {
   const [showLog, setShowLog] = useState(false);
   const [showDevices, setShowDevices] = useState(true);
-  const [recordSecs, setRecordSecs] = useState(0);
-
-  useEffect(() => {
-    let timer;
-    if (recording) {
-      setRecordSecs(0);
-      timer = setInterval(() => {
-        setRecordSecs(s => s + 1);
-      }, 1000);
-    } else {
-      setRecordSecs(0);
-    }
-    return () => {
-      if (timer) clearInterval(timer);
-    };
-  }, [recording]);
 
   function handleQuickPanic() {
     setText("CRITICAL EMERGENCY: Trapped under rubble, bleeding heavily, need immediate rescue");
@@ -199,59 +185,127 @@ export function Composer({
           )}
         </div>
 
+        {/* Live Recording In-Progress Banner with Stop & Send / Cancel */}
         {recording && (
           <div
             style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
               background: "rgba(255, 75, 92, 0.15)",
               border: "1px solid rgba(255, 75, 92, 0.4)",
-              borderRadius: 8,
-              padding: "8px 12px",
-              marginBottom: 10,
-              fontSize: 13,
-              color: "#ff4b5c",
-              fontWeight: 600,
+              borderRadius: 10,
+              padding: "10px 14px",
+              marginBottom: 12,
             }}
           >
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <span className="live-dot pulse" style={{ background: "#ff4b5c", boxShadow: "0 0 8px #ff4b5c" }}></span>
-              <span>Recording Voice Note ({recordSecs}s)...</span>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span className="live-dot pulse" style={{ background: "#ff4b5c", boxShadow: "0 0 10px #ff4b5c" }}></span>
+                <span style={{ fontSize: 13, color: "#ff4b5c", fontWeight: 700 }}>
+                  Recording Voice Note ({recordSecs}s)...
+                </span>
+              </div>
+              <span style={{ fontSize: 11, color: "var(--muted)", fontFamily: "var(--mono)" }}>Live Audio</span>
             </div>
-            <span style={{ fontSize: 11, color: "var(--muted)", fontWeight: 500 }}>Tap Stop to Dispatch</span>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                type="button"
+                className="tiny-btn"
+                style={{
+                  flex: 1.5,
+                  padding: "10px 12px",
+                  fontSize: 13,
+                  fontWeight: 800,
+                  background: "linear-gradient(135deg, #ff4b5c 0%, #c0392b 100%)",
+                  borderColor: "rgba(255, 75, 92, 0.6)",
+                  color: "#fff",
+                  boxShadow: "0 2px 10px rgba(255,75,92,0.3)",
+                }}
+                onClick={toggleRecording}
+              >
+                ⏹ Stop & Send ({recordSecs}s)
+              </button>
+              <button
+                type="button"
+                className="tiny-btn"
+                style={{
+                  flex: 1,
+                  padding: "10px 12px",
+                  fontSize: 12.5,
+                  fontWeight: 600,
+                  background: "rgba(255, 75, 92, 0.12)",
+                  borderColor: "rgba(255, 75, 92, 0.35)",
+                  color: "#ff4b5c",
+                }}
+                onClick={cancelRecording}
+              >
+                ✖ Cancel
+              </button>
+            </div>
           </div>
         )}
 
-        <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-          <button
-            type="button"
-            className="tiny-btn"
-            style={{ flex: 1, padding: "10px", fontSize: 13, fontWeight: 700 }}
-            onClick={pickImage}
-            disabled={!joined || !online || recording}
-          >
-            🖼️ Image Note
-          </button>
-          <button
-            type="button"
-            className="tiny-btn"
+        {/* Mobile Insecure Context Warning */}
+        {typeof window !== "undefined" && !window.isSecureContext && window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1" && (
+          <div
             style={{
-              flex: 1,
-              padding: "10px",
-              fontSize: 13,
-              fontWeight: 700,
-              background: recording ? "rgba(255, 75, 92, 0.2)" : undefined,
-              borderColor: recording ? "var(--critical)" : undefined,
-              color: recording ? "var(--critical)" : undefined,
+              background: "rgba(240, 166, 60, 0.12)",
+              border: "1px solid rgba(240, 166, 60, 0.4)",
+              borderRadius: 8,
+              padding: "8px 12px",
+              marginBottom: 10,
+              fontSize: 12,
+              color: "var(--elevated)",
+              lineHeight: 1.4,
             }}
-            onClick={toggleRecording}
-            disabled={!joined || !online}
           >
-            {recording ? `⏹ Stop & Send (${recordSecs}s)` : "🎤 Voice Note"}
-          </button>
-          <input ref={fileInputRef} type="file" accept="image/*" style={{ display: "none" }} onChange={handleImageFile} />
-        </div>
+            ⚠️ <strong>Mobile Mic Notice:</strong> Mobile browsers require HTTPS for microphone recording.
+            <div style={{ marginTop: 4 }}>
+              <a
+                href={`https://${window.location.host}${window.location.pathname}`}
+                style={{ color: "var(--signal)", fontWeight: 700, textDecoration: "underline" }}
+              >
+                Tap here to switch to HTTPS ({window.location.host}) ↗
+              </a>
+            </div>
+          </div>
+        )}
+
+        {/* Media Buttons (Shown when not recording) */}
+        {!recording && (
+          <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+            <button
+              type="button"
+              className="tiny-btn"
+              style={{ flex: 1, padding: "10px", fontSize: 13, fontWeight: 700 }}
+              onClick={pickImage}
+              disabled={!joined || !online}
+            >
+              🖼️ Image Note
+            </button>
+            <button
+              type="button"
+              className="tiny-btn"
+              style={{
+                flex: 1,
+                padding: "10px",
+                fontSize: 13,
+                fontWeight: 700,
+              }}
+              onClick={toggleRecording}
+              disabled={!joined || !online}
+            >
+              🎤 Voice Note
+            </button>
+          </div>
+        )}
+
+        {/* Hidden File Input for Image Upload (Always Present in DOM) */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          style={{ display: "none" }}
+          onChange={handleImageFile}
+        />
 
         {Object.entries(mediaProgress).map(([id, p]) => (
           <div key={id} style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--signal)", marginBottom: 8 }}>

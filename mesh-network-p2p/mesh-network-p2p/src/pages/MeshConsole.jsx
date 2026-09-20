@@ -52,10 +52,33 @@ export function MeshConsole() {
   const [broadcastText, setBroadcastText] = useState("This is my current location");
   const [broadcasting, setBroadcasting] = useState(false);
   const [recording, setRecording] = useState(false);
+  const [recordSecs, setRecordSecs] = useState(0);
   const [mediaProgress, setMediaProgress] = useState({});
   const mediaRecorderRef = useRef(null);
   const recordedChunksRef = useRef([]);
+  const recordSecsRef = useRef(0);
   const fileInputRef = useRef(null);
+
+  useEffect(() => {
+    let timer;
+    if (recording) {
+      setRecordSecs(0);
+      recordSecsRef.current = 0;
+      timer = setInterval(() => {
+        setRecordSecs(s => {
+          const next = s + 1;
+          recordSecsRef.current = next;
+          return next;
+        });
+      }, 1000);
+    } else {
+      setRecordSecs(0);
+      recordSecsRef.current = 0;
+    }
+    return () => {
+      if (timer) clearInterval(timer);
+    };
+  }, [recording]);
 
   function handleJoin(customName) {
     const finalName = (customName || name || "").trim();
@@ -248,13 +271,14 @@ export function MeshConsole() {
         setLog(l => [{
           id: uid(),
           tag: "failure",
-          text: "Please select a destination peer from the Connected Devices list or dropdown before picking an image.",
+          text: "Please select a destination peer from the Connected Devices list before picking an image.",
           time: timeStr
         }, ...l].slice(0, 100));
         return;
       }
     }
     if (fileInputRef.current) {
+      fileInputRef.current.value = "";
       fileInputRef.current.click();
     }
   }
@@ -282,43 +306,124 @@ export function MeshConsole() {
       }
     }
 
-    try {
-      const objectUrl = URL.createObjectURL(file);
+    const captionToSend = textRef.current.trim();
+    const reader = new FileReader();
+
+    reader.onerror = () => {
+      e.target.value = "";
+      const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      setLog(l => [{ id: uid(), tag: "failure", text: "Failed to read selected image file.", time: timeStr }, ...l].slice(0, 100));
+    };
+
+    reader.onload = () => {
+      const rawDataUrl = reader.result;
       const img = new Image();
+
       img.onload = () => {
         try {
-          const maxDim = 700;
-          const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
-          const canvas = document.createElement("canvas");
-          canvas.width = Math.round(img.width * scale);
-          canvas.height = Math.round(img.height * scale);
-          const ctx = canvas.getContext("2d");
-          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-          const dataUrl = canvas.toDataURL("image/jpeg", 0.55);
-          if (meshRef.current && destTarget) {
-            meshRef.current.sendMedia(destTarget, "image", dataUrl, "image/jpeg", textRef.current.trim());
+          const maxDim = 800;
+          let width = img.width;
+          let height = img.height;
+
+          if (width > maxDim || height > maxDim) {
+            const scale = Math.min(maxDim / width, maxDim / height);
+            width = Math.round(width * scale);
+            height = Math.round(height * scale);
           }
-          setText("");
-        } catch (err) {
-          const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-          setLog(l => [{ id: uid(), tag: "failure", text: `Image processing failed: ${err.message}`, time: timeStr }, ...l].slice(0, 100));
+
+          const canvas = document.createElement("canvas");
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext("2d");
+          ctx.drawImage(img, 0, 0, width, height);
+
+          const compressedDataUrl = canvas.toDataURL("image/jpeg", 0.6);
+
+          if (meshRef.current && destTarget) {
+            meshRef.current.sendMedia(destTarget, "image", compressedDataUrl, "image/jpeg", captionToSend);
+            const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            const targetNode = graph.nodes.find(n => n.id === destTarget);
+            const targetName = targetNode ? targetNode.name : destTarget;
+            setLog(l => [{
+              id: uid(),
+              tag: "system",
+              text: `Dispatched encrypted image note to ${targetName}${captionToSend ? ` ("${captionToSend}")` : ""}`,
+              time: timeStr
+            }, ...l].slice(0, 100));
+          }
+          if (captionToSend) setText("");
+        } catch (canvasErr) {
+          if (meshRef.current && destTarget) {
+            meshRef.current.sendMedia(destTarget, "image", rawDataUrl, file.type || "image/jpeg", captionToSend);
+            const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            const targetNode = graph.nodes.find(n => n.id === destTarget);
+            const targetName = targetNode ? targetNode.name : destTarget;
+            setLog(l => [{
+              id: uid(),
+              tag: "system",
+              text: `Dispatched encrypted image note to ${targetName}${captionToSend ? ` ("${captionToSend}")` : ""}`,
+              time: timeStr
+            }, ...l].slice(0, 100));
+          }
+          if (captionToSend) setText("");
         } finally {
-          URL.revokeObjectURL(objectUrl);
           e.target.value = "";
         }
       };
+
       img.onerror = () => {
-        URL.revokeObjectURL(objectUrl);
-        e.target.value = "";
-        const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-        setLog(l => [{ id: uid(), tag: "failure", text: "Failed to load selected image file.", time: timeStr }, ...l].slice(0, 100));
+        try {
+          if (meshRef.current && destTarget) {
+            meshRef.current.sendMedia(destTarget, "image", rawDataUrl, file.type || "image/jpeg", captionToSend);
+            const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            const targetNode = graph.nodes.find(n => n.id === destTarget);
+            const targetName = targetNode ? targetNode.name : destTarget;
+            setLog(l => [{
+              id: uid(),
+              tag: "system",
+              text: `Dispatched encrypted image note to ${targetName}${captionToSend ? ` ("${captionToSend}")` : ""}`,
+              time: timeStr
+            }, ...l].slice(0, 100));
+          }
+          if (captionToSend) setText("");
+        } catch (sendErr) {
+          const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+          setLog(l => [{ id: uid(), tag: "failure", text: `Image send failed: ${sendErr.message}`, time: timeStr }, ...l].slice(0, 100));
+        } finally {
+          e.target.value = "";
+        }
       };
-      img.src = objectUrl;
-    } catch (err) {
-      e.target.value = "";
-      const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-      setLog(l => [{ id: uid(), tag: "failure", text: `Image selection error: ${err.message}`, time: timeStr }, ...l].slice(0, 100));
+
+      img.src = rawDataUrl;
+    };
+
+    reader.readAsDataURL(file);
+  }
+
+  function cancelRecording() {
+    if (mediaRecorderRef.current) {
+      try {
+        if (mediaRecorderRef.current.stream) {
+          mediaRecorderRef.current.stream.getTracks().forEach(t => t.stop());
+        }
+      } catch (e) {}
+      try {
+        mediaRecorderRef.current.onstop = null;
+        if (mediaRecorderRef.current.state === "recording") {
+          mediaRecorderRef.current.stop();
+        }
+      } catch (e) {}
     }
+    setRecording(false);
+    setRecordSecs(0);
+    recordedChunksRef.current = [];
+    const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    setLog(l => [{
+      id: uid(),
+      tag: "system",
+      text: "Voice recording cancelled.",
+      time: timeStr
+    }, ...l].slice(0, 100));
   }
 
   async function toggleRecording() {
@@ -353,9 +458,6 @@ export function MeshConsole() {
       setRecording(false);
       return;
     }
-
-    const captionToSend = textRef.current.trim();
-    const destToUse = destTarget;
 
     try {
       if (typeof MediaRecorder === "undefined") {
@@ -418,17 +520,22 @@ export function MeshConsole() {
             return;
           }
           const dataUrl = await blobToDataURL(blob);
-          if (meshRef.current && destToUse) {
-            meshRef.current.sendMedia(destToUse, "voice", dataUrl, cleanMimeType, captionToSend);
+          const duration = recordSecsRef.current || 1;
+          const currentDest = targetRef.current || destTarget;
+          const captionToSend = textRef.current.trim();
+
+          if (meshRef.current && currentDest) {
+            meshRef.current.sendMedia(currentDest, "voice", dataUrl, cleanMimeType, captionToSend);
             const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-            const targetNode = graph.nodes.find(n => n.id === destToUse);
-            const targetName = targetNode ? targetNode.name : destToUse;
+            const targetNode = graph.nodes.find(n => n.id === currentDest);
+            const targetName = targetNode ? targetNode.name : currentDest;
             setLog(l => [{
               id: uid(),
               tag: "system",
-              text: `Dispatched encrypted voice note to ${targetName}${captionToSend ? ` ("${captionToSend}")` : ""}`,
+              text: `Dispatched encrypted voice note (${duration}s) to ${targetName}${captionToSend ? ` ("${captionToSend}")` : ""}`,
               time: timeStr
             }, ...l].slice(0, 100));
+            if (captionToSend) setText("");
           }
         } catch (err) {
           const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
@@ -444,7 +551,6 @@ export function MeshConsole() {
       mediaRecorderRef.current = recorder;
       recorder.start(100);
       setRecording(true);
-      if (captionToSend) setText("");
     } catch (e) {
       setRecording(false);
       const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
@@ -668,7 +774,9 @@ export function MeshConsole() {
         urgencyPreview={urgencyPreview}
         pickImage={pickImage}
         toggleRecording={toggleRecording}
+        cancelRecording={cancelRecording}
         recording={recording}
+        recordSecs={recordSecs}
         mediaProgress={mediaProgress}
         send={send}
         joined={joined}
