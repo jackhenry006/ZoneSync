@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { io } from 'socket.io-client';
 import { MeshNode } from '../services/meshNode.js';
 import { uid, classifyUrgency, URGENT_TERMS } from '../services/urgencyClassifier.js';
@@ -7,18 +7,30 @@ import { JoinModal } from '../components/JoinModal.jsx';
 import { Sidebar } from '../components/Sidebar.jsx';
 import { Composer } from '../components/Composer.jsx';
 import { MessagePopups } from '../components/MessagePopups.jsx';
+import {
+  getSupportedAudioMimeType,
+  getMicrophoneStream,
+  blobToDataURL,
+  generateSyntheticVoiceDispatch,
+} from '../utils/audioUtils.js';
 
 export function MeshConsole() {
   const [socket] = useState(() => io(import.meta.env.VITE_BACKEND_URL || undefined));
-  const [joined, setJoined] = useState(false);
-  const [online, setOnline] = useState(true);
   const [name, setName] = useState(() => {
     try {
-      return localStorage.getItem("mesh_node_name") || "";
+      return localStorage.getItem("mesh_node_name") || sessionStorage.getItem("mesh_node_name") || "";
     } catch (e) {
       return "";
     }
   });
+  const [joined, setJoined] = useState(() => {
+    try {
+      return Boolean(sessionStorage.getItem("mesh_joined") === "true" && (localStorage.getItem("mesh_node_name") || sessionStorage.getItem("mesh_node_name")));
+    } catch (e) {
+      return false;
+    }
+  });
+  const [online, setOnline] = useState(true);
   const [selfId] = useState(() => uid());
   const meshRef = useRef(null);
   const [graph, setGraph] = useState({ nodes: [], links: [] });
@@ -45,19 +57,36 @@ export function MeshConsole() {
   const recordedChunksRef = useRef([]);
   const fileInputRef = useRef(null);
 
-  function join() {
-    if (!name.trim()) return;
+  function handleJoin(customName) {
+    const finalName = (customName || name || "").trim();
+    if (!finalName) return;
+    setName(finalName);
     try {
-      localStorage.setItem("mesh_node_name", name.trim());
+      localStorage.setItem("mesh_node_name", finalName);
+      sessionStorage.setItem("mesh_node_name", finalName);
+      sessionStorage.setItem("mesh_joined", "true");
     } catch (e) {}
+    setJoined(true);
+  }
+
+  React.useEffect(() => {
+    if (!joined || !name.trim()) return;
+
+    const now = () => new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+    setLog(l => [
+      { id: uid(), tag: "system", text: `Node "${name.trim()}" online. P2P WebRTC mesh active.`, time: now() },
+      ...l
+    ].slice(0, 100));
+
     const mesh = new MeshNode(selfId, name.trim(), socket, {
       onTopology: (g) => setGraph(g),
-      onLog: (entry) => setLog(l => [{ ...entry, id: uid() }, ...l].slice(0, 60)),
+      onLog: (entry) => setLog(l => [{ ...entry, id: uid(), time: now() }, ...l].slice(0, 100)),
       onHop: ({ from, to, urgency }) => {
         setActiveHop({ from, to, urgency, progress: 0 });
         let start = performance.now();
-        function animate(now) {
-          const p = Math.min(1, (now - start) / 400);
+        function animate(t) {
+          const p = Math.min(1, (t - start) / 400);
           setActiveHop(h => h ? { ...h, progress: p } : h);
           if (p < 1) requestAnimationFrame(animate); else setTimeout(() => setActiveHop(null), 150);
         }
@@ -69,7 +98,7 @@ export function MeshConsole() {
           ? (envelope.verified ? " · 🔒 encrypted, ✓ verified" : " · 🔒 encrypted, ⚠ signature NOT verified")
           : " · 🔓 unencrypted";
         const meta = `received from ${envelope.from}${lockTag}${loc ? ` · 📍 ${loc.lat.toFixed(5)}, ${loc.lng.toFixed(5)} (±${loc.accuracy}m)` : ""}`;
-        setLog(l => [{ id: uid(), tag: "delivered", text: `"${envelope.text}"`, meta, mapUrl: loc ? `https://www.google.com/maps?q=${loc.lat},${loc.lng}` : null }, ...l].slice(0, 60));
+        setLog(l => [{ id: uid(), tag: "delivered", text: `"${envelope.text}"`, meta, mapUrl: loc ? `https://www.google.com/maps?q=${loc.lat},${loc.lng}` : null, time: now() }, ...l].slice(0, 100));
 
         const senderNode = meshRef.current?.linkState.get(envelope.from) || graph.nodes.find(n => n.id === envelope.from);
         const fromName = senderNode ? senderNode.name : envelope.from;
@@ -107,7 +136,8 @@ export function MeshConsole() {
           meta,
           mediaKind: payload.kind, mediaUrl: payload.dataUrl, mimeType: payload.mimeType,
           mapUrl: loc ? `https://www.google.com/maps?q=${loc.lat},${loc.lng}` : null,
-        }, ...l].slice(0, 60));
+          time: now()
+        }, ...l].slice(0, 100));
 
         const senderNode = meshRef.current?.linkState.get(payload.from) || graph.nodes.find(n => n.id === payload.from);
         const fromName = senderNode ? senderNode.name : payload.from;
@@ -144,8 +174,33 @@ export function MeshConsole() {
     });
     meshRef.current = mesh;
     mesh.register();
-    setJoined(true);
     setOnline(true);
+
+    return () => {
+      mesh.destroy();
+      meshRef.current = null;
+    };
+  }, [joined, name, selfId, socket]);
+
+  const [sidebarOpen, setSidebarOpen] = useState(() => {
+    try {
+      return localStorage.getItem("mesh_sidebar_open") !== "false";
+    } catch (e) {
+      return true;
+    }
+  });
+
+  function toggleSidebar() {
+    setSidebarOpen(prev => {
+      const next = !prev;
+      try {
+        localStorage.setItem("mesh_sidebar_open", next ? "true" : "false");
+      } catch (e) {}
+      setTimeout(() => {
+        window.dispatchEvent(new Event("resize"));
+      }, 50);
+      return next;
+    });
   }
 
   function toggleCloud() {
@@ -160,23 +215,6 @@ export function MeshConsole() {
     if (meshRef.current) meshRef.current.setLocationSharing(next);
   }
 
-  function handleSetManualLocation() {
-    const defaultCoords = locationStatus.location
-      ? `${locationStatus.location.lat.toFixed(4)}, ${locationStatus.location.lng.toFixed(4)}`
-      : "37.7749, -122.4194";
-    const input = window.prompt("Enter manual coordinates (lat, lng):", defaultCoords);
-    if (!input) return;
-    const parts = input.split(",").map(s => parseFloat(s.trim()));
-    if (parts.length >= 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
-      setLocationEnabled(true);
-      if (meshRef.current) {
-        meshRef.current.setManualLocation({ lat: parts[0], lng: parts[1] });
-      }
-    } else {
-      alert("Invalid format. Please enter as: latitude, longitude (e.g. 37.7749, -122.4194)");
-    }
-  }
-
   async function shareLocationToAll() {
     if (!meshRef.current || broadcasting) return;
     setBroadcasting(true);
@@ -187,10 +225,34 @@ export function MeshConsole() {
     }
   }
 
+  const targetRef = useRef(target);
+  useEffect(() => {
+    targetRef.current = target;
+  }, [target]);
+
+  const textRef = useRef(text);
+  useEffect(() => {
+    textRef.current = text;
+  }, [text]);
+
   function pickImage() {
-    if (!target) {
-      setLog(l => [{ id: uid(), tag: "failure", text: "Please select a destination node from the dropdown before picking an image." }, ...l].slice(0, 60));
-      return;
+    let destTarget = targetRef.current;
+    if (!destTarget) {
+      const otherNodes = graph.nodes.filter(n => n.id !== selfId);
+      if (otherNodes.length > 0) {
+        destTarget = otherNodes[0].id;
+        setTarget(destTarget);
+        targetRef.current = destTarget;
+      } else {
+        const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        setLog(l => [{
+          id: uid(),
+          tag: "failure",
+          text: "Please select a destination peer from the Connected Devices list or dropdown before picking an image.",
+          time: timeStr
+        }, ...l].slice(0, 100));
+        return;
+      }
     }
     if (fileInputRef.current) {
       fileInputRef.current.click();
@@ -200,10 +262,24 @@ export function MeshConsole() {
   function handleImageFile(e) {
     const file = e.target.files && e.target.files[0];
     if (!file) return;
-    if (!target || !meshRef.current) {
-      setLog(l => [{ id: uid(), tag: "failure", text: "Please select a destination node from the dropdown before picking an image." }, ...l].slice(0, 60));
-      e.target.value = "";
-      return;
+    let destTarget = targetRef.current;
+    if (!destTarget) {
+      const otherNodes = graph.nodes.filter(n => n.id !== selfId);
+      if (otherNodes.length > 0) {
+        destTarget = otherNodes[0].id;
+        setTarget(destTarget);
+        targetRef.current = destTarget;
+      } else {
+        const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        setLog(l => [{
+          id: uid(),
+          tag: "failure",
+          text: "Please select a destination node before picking an image.",
+          time: timeStr
+        }, ...l].slice(0, 100));
+        e.target.value = "";
+        return;
+      }
     }
 
     try {
@@ -219,10 +295,13 @@ export function MeshConsole() {
           const ctx = canvas.getContext("2d");
           ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
           const dataUrl = canvas.toDataURL("image/jpeg", 0.55);
-          meshRef.current.sendMedia(target, "image", dataUrl, "image/jpeg", text.trim());
+          if (meshRef.current && destTarget) {
+            meshRef.current.sendMedia(destTarget, "image", dataUrl, "image/jpeg", textRef.current.trim());
+          }
           setText("");
         } catch (err) {
-          setLog(l => [{ id: uid(), tag: "failure", text: `Image processing failed: ${err.message}` }, ...l].slice(0, 60));
+          const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+          setLog(l => [{ id: uid(), tag: "failure", text: `Image processing failed: ${err.message}`, time: timeStr }, ...l].slice(0, 100));
         } finally {
           URL.revokeObjectURL(objectUrl);
           e.target.value = "";
@@ -231,69 +310,68 @@ export function MeshConsole() {
       img.onerror = () => {
         URL.revokeObjectURL(objectUrl);
         e.target.value = "";
-        setLog(l => [{ id: uid(), tag: "failure", text: "Failed to load selected image file." }, ...l].slice(0, 60));
+        const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        setLog(l => [{ id: uid(), tag: "failure", text: "Failed to load selected image file.", time: timeStr }, ...l].slice(0, 100));
       };
       img.src = objectUrl;
     } catch (err) {
       e.target.value = "";
-      setLog(l => [{ id: uid(), tag: "failure", text: `Image selection error: ${err.message}` }, ...l].slice(0, 60));
+      const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      setLog(l => [{ id: uid(), tag: "failure", text: `Image selection error: ${err.message}`, time: timeStr }, ...l].slice(0, 100));
     }
-  }
-
-  async function getAudioStream() {
-    // Modern browsers disable navigator.mediaDevices on unencrypted HTTP (except localhost)
-    if (typeof window !== "undefined" && window.isSecureContext === false && window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1") {
-      throw new Error(
-        "Microphone access requires HTTPS or localhost (Secure Context). Browsers disable media devices on HTTP over local IP. Use HTTPS or enable chrome://flags/#unsafely-treat-insecure-origin-as-secure."
-      );
-    }
-
-    if (navigator?.mediaDevices?.getUserMedia) {
-      return await navigator.mediaDevices.getUserMedia({ audio: true });
-    }
-
-    const legacyGetUserMedia =
-      navigator.getUserMedia ||
-      navigator.webkitGetUserMedia ||
-      navigator.mozGetUserMedia ||
-      navigator.msGetUserMedia;
-
-    if (legacyGetUserMedia) {
-      return new Promise((resolve, reject) => {
-        legacyGetUserMedia.call(navigator, { audio: true }, resolve, reject);
-      });
-    }
-
-    throw new Error("Microphone API (getUserMedia) is not supported in this browser environment.");
   }
 
   async function toggleRecording() {
-    if (!target) return;
+    let destTarget = targetRef.current;
+    if (!destTarget) {
+      const otherNodes = graph.nodes.filter(n => n.id !== selfId);
+      if (otherNodes.length > 0) {
+        destTarget = otherNodes[0].id;
+        setTarget(destTarget);
+        targetRef.current = destTarget;
+      } else {
+        const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        setLog(l => [{
+          id: uid(),
+          tag: "failure",
+          text: "No recipient selected. Please select a peer from Connected Devices before recording a voice note.",
+          time: timeStr
+        }, ...l].slice(0, 100));
+        return;
+      }
+    }
+
     if (recording) {
-      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
-        mediaRecorderRef.current.stop();
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
+        try {
+          mediaRecorderRef.current.requestData();
+        } catch (e) {}
+        try {
+          mediaRecorderRef.current.stop();
+        } catch (e) {}
       }
       setRecording(false);
       return;
     }
+
+    const captionToSend = textRef.current.trim();
+    const destToUse = destTarget;
+
     try {
       if (typeof MediaRecorder === "undefined") {
-        throw new Error("Voice recording is not supported in this browser (MediaRecorder API missing).");
+        throw new Error("MediaRecorder API is not supported in this browser.");
       }
-      const stream = await getAudioStream();
-      const candidates = [
-        "audio/webm;codecs=opus",
-        "audio/webm",
-        "audio/mp4",
-        "audio/ogg;codecs=opus",
-        "audio/aac",
-      ];
-      const supportedMime = candidates.find(type => typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(type)) || "";
-      const options = supportedMime ? { mimeType: supportedMime } : undefined;
-      const recorder = new MediaRecorder(stream, options);
+
+      const stream = await getMicrophoneStream();
+      const supportedMime = getSupportedAudioMimeType();
+      let recorder;
+      try {
+        recorder = supportedMime ? new MediaRecorder(stream, { mimeType: supportedMime }) : new MediaRecorder(stream);
+      } catch (mimeErr) {
+        recorder = new MediaRecorder(stream);
+      }
 
       const actualMime = recorder.mimeType || supportedMime || "audio/webm";
-      // Extract base MIME type without parameters (e.g., 'audio/webm') for clean Data URIs compatible with <audio src="...">
       const cleanMimeType = actualMime.split(";")[0] || "audio/webm";
 
       recordedChunksRef.current = [];
@@ -303,18 +381,64 @@ export function MeshConsole() {
         }
       };
 
-      const captionToSend = text.trim();
-      recorder.onstop = () => {
+      recorder.onerror = (e) => {
         stream.getTracks().forEach(t => t.stop());
-        if (recordedChunksRef.current.length === 0) return;
-        const blob = new Blob(recordedChunksRef.current, { type: cleanMimeType });
-        const reader = new FileReader();
-        reader.onload = () => {
-          if (meshRef.current && target) {
-            meshRef.current.sendMedia(target, "voice", reader.result, cleanMimeType, captionToSend);
+        setRecording(false);
+        const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        setLog(l => [{
+          id: uid(),
+          tag: "failure",
+          text: `Microphone recording error: ${e.error?.message || "Recording interrupted"}`,
+          time: timeStr
+        }, ...l].slice(0, 100));
+      };
+
+      recorder.onstop = async () => {
+        try {
+          stream.getTracks().forEach(t => t.stop());
+          if (recordedChunksRef.current.length === 0) {
+            const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            setLog(l => [{
+              id: uid(),
+              tag: "failure",
+              text: "Voice note was empty (0 audio bytes captured).",
+              time: timeStr
+            }, ...l].slice(0, 100));
+            return;
           }
-        };
-        reader.readAsDataURL(blob);
+          const blob = new Blob(recordedChunksRef.current, { type: cleanMimeType });
+          if (blob.size === 0) {
+            const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            setLog(l => [{
+              id: uid(),
+              tag: "failure",
+              text: "Voice note recording was empty.",
+              time: timeStr
+            }, ...l].slice(0, 100));
+            return;
+          }
+          const dataUrl = await blobToDataURL(blob);
+          if (meshRef.current && destToUse) {
+            meshRef.current.sendMedia(destToUse, "voice", dataUrl, cleanMimeType, captionToSend);
+            const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            const targetNode = graph.nodes.find(n => n.id === destToUse);
+            const targetName = targetNode ? targetNode.name : destToUse;
+            setLog(l => [{
+              id: uid(),
+              tag: "system",
+              text: `Dispatched encrypted voice note to ${targetName}${captionToSend ? ` ("${captionToSend}")` : ""}`,
+              time: timeStr
+            }, ...l].slice(0, 100));
+          }
+        } catch (err) {
+          const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+          setLog(l => [{
+            id: uid(),
+            tag: "failure",
+            text: `Voice note encoding failed: ${err.message}`,
+            time: timeStr
+          }, ...l].slice(0, 100));
+        }
       };
 
       mediaRecorderRef.current = recorder;
@@ -323,13 +447,29 @@ export function MeshConsole() {
       if (captionToSend) setText("");
     } catch (e) {
       setRecording(false);
-      setLog(l => [{ id: uid(), tag: "failure", text: `Microphone access failed: ${e.message}` }, ...l].slice(0, 60));
+      const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      setLog(l => [{
+        id: uid(),
+        tag: "failure",
+        text: `Voice recording unavailable: ${e.message}`,
+        time: timeStr
+      }, ...l].slice(0, 100));
     }
   }
 
   function send() {
     if (!text.trim() || !target || !meshRef.current) return;
-    meshRef.current.sendMessage(target, text.trim());
+    const msgText = text.trim();
+    const targetNode = graph.nodes.find(n => n.id === target);
+    const targetName = targetNode ? targetNode.name : target;
+    meshRef.current.sendMessage(target, msgText);
+    const nowStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    setLog(l => [{
+      id: uid(),
+      tag: "system",
+      text: `Dispatched encrypted packet to ${targetName}: "${msgText}"`,
+      time: nowStr
+    }, ...l].slice(0, 100));
     setText("");
   }
 
@@ -341,6 +481,13 @@ export function MeshConsole() {
   function goOnline() {
     if (meshRef.current) meshRef.current.register();
     setOnline(true);
+  }
+  function leaveMesh() {
+    if (meshRef.current) meshRef.current.goOffline();
+    setJoined(false);
+    setName("");
+    setOnline(false);
+    setPeerStates([]);
   }
 
   function handleNodeClick(id) {
@@ -358,6 +505,10 @@ export function MeshConsole() {
   const otherKnownNodes = graph.nodes.filter(n => n.id !== selfId);
   const liveTerms = meshRef.current ? meshRef.current.aiTerms : URGENT_TERMS;
   const urgencyPreview = text.trim() ? classifyUrgency(text, liveTerms).level : null;
+
+  if (!joined) {
+    return <JoinModal name={name} setName={setName} onJoin={handleJoin} defaultMode="/" />;
+  }
 
   function handleDismissPopup(id) {
     setPopups(prev => prev.filter(p => p.id !== id));
@@ -402,52 +553,75 @@ export function MeshConsole() {
   }
 
   return (
-    <div className="app">
+    <div className={`app ${sidebarOpen ? "sidebar-open" : "sidebar-closed"}`}>
       <MessagePopups
         popups={popups}
         onDismiss={handleDismissPopup}
         onClearAll={handleClearAllPopups}
         onReply={handleReplyToSender}
       />
-      <Sidebar
-        graph={graph}
-        selfId={selfId}
-        peerStates={peerStates}
-        linkMode={linkMode}
-        setLinkMode={setLinkMode}
-        cloudEnabled={cloudEnabled}
-        toggleCloud={toggleCloud}
-        cloudUrl={cloudUrl}
-        setCloudUrl={setCloudUrl}
-        cloudStatus={cloudStatus}
-        aiVersion={aiVersion}
-        cryptoStatus={cryptoStatus}
-        identityCount={identityCount}
-        locationEnabled={locationEnabled}
-        toggleLocation={toggleLocation}
-        locationStatus={locationStatus}
-        setManualLocation={handleSetManualLocation}
-        online={online}
-        goOffline={goOffline}
-        goOnline={goOnline}
-        onChangeName={handleChangeName}
-        onManualConnect={handleManualConnect}
-      />
+      {/* Mobile Backdrop overlay when sidebar is open on small screens */}
+      {sidebarOpen && (
+        <div
+          className="mobile-sidebar-backdrop"
+          onClick={() => setSidebarOpen(false)}
+          aria-hidden="true"
+        />
+      )}
+      {sidebarOpen && (
+        <Sidebar
+          graph={graph}
+          selfId={selfId}
+          peerStates={peerStates}
+          linkMode={linkMode}
+          setLinkMode={setLinkMode}
+          cloudEnabled={cloudEnabled}
+          toggleCloud={toggleCloud}
+          cloudUrl={cloudUrl}
+          setCloudUrl={setCloudUrl}
+          cryptoStatus={cryptoStatus}
+          identityCount={identityCount}
+          locationEnabled={locationEnabled}
+          toggleLocation={toggleLocation}
+          online={online}
+          goOffline={goOffline}
+          goOnline={goOnline}
+          onLeaveMesh={leaveMesh}
+          onChangeName={handleChangeName}
+          onManualConnect={handleManualConnect}
+          onClose={() => setSidebarOpen(false)}
+        />
+      )}
       <div className="stage">
         {/* Top Command Bar */}
         <div className="stage-header-bar">
           <div className="stage-status-pills">
+            {/* Left Sidebar Visibility Toggle */}
+            <button
+              id="sidebar-toggle-btn"
+              className={`stage-action-btn sidebar-toggle-btn ${sidebarOpen ? "active" : ""}`}
+              onClick={toggleSidebar}
+              title={sidebarOpen ? "Hide left sidebar (moves messages to left)" : "Show left sidebar"}
+              aria-label={sidebarOpen ? "Hide left sidebar" : "Show left sidebar"}
+            >
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.2" style={{ verticalAlign: "middle", marginRight: 5 }}>
+                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                <line x1="9" y1="3" x2="9" y2="21"/>
+              </svg>
+              <span>{sidebarOpen ? "Hide Sidebar" : "Show Sidebar"}</span>
+            </button>
+
             <div className="stage-pill">
               <span className="live-dot pulse"></span>
-              <span><strong>{graph.nodes.length}</strong> Nodes Known</span>
+              <span><strong>{graph.nodes.length}</strong> Nodes</span>
             </div>
             <div className="stage-pill">
               <span className="live-dot pulse" style={{ background: "#4B9EFF", boxShadow: "0 0 8px #4B9EFF" }}></span>
-              <span><strong>{peerStates.filter(p => p.state === "connected").length}</strong> P2P WebRTC Links</span>
+              <span><strong>{peerStates.filter(p => p.state === "connected").length}</strong> Links</span>
             </div>
             <div className="stage-pill">
               <span style={{ fontSize: 12 }}>🔒</span>
-              <span>E2E Crypto: <strong>{cryptoStatus.ready ? "Active" : "Offline"}</strong></span>
+              <span>E2E: <strong>{cryptoStatus.ready ? "Active" : "Offline"}</strong></span>
             </div>
           </div>
 
@@ -488,6 +662,9 @@ export function MeshConsole() {
         text={text}
         setText={setText}
         otherKnownNodes={otherKnownNodes}
+        nodes={graph.nodes}
+        selfId={selfId}
+        peerStates={peerStates}
         urgencyPreview={urgencyPreview}
         pickImage={pickImage}
         toggleRecording={toggleRecording}
@@ -503,6 +680,7 @@ export function MeshConsole() {
         log={log}
         fileInputRef={fileInputRef}
         handleImageFile={handleImageFile}
+        onToggleSidebar={toggleSidebar}
       />
     </div>
   );

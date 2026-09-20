@@ -10,19 +10,17 @@ export function Sidebar({
   toggleCloud,
   cloudUrl,
   setCloudUrl,
-  cloudStatus,
-  aiVersion,
   cryptoStatus,
   identityCount,
   locationEnabled,
   toggleLocation,
-  locationStatus,
-  setManualLocation,
   online,
   goOffline,
   goOnline,
+  onLeaveMesh,
   onChangeName,
   onManualConnect,
+  onClose,
 }) {
   const connectedCount = peerStates.filter(p => p.state === "connected").length;
   const selfNode = graph.nodes.find(n => n.id === selfId);
@@ -30,33 +28,30 @@ export function Sidebar({
   return (
     <div className="sidebar" style={{ padding: "14px", gap: "12px", display: "flex", flexDirection: "column" }}>
       
-      {/* CARD 1: Brand & Network Header */}
-      <div className="sidebar-card brand-card">
-        <div className="mark">CRISISLINK // P2P-AI</div>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", margin: "4px 0 6px" }}>
-          <h1 style={{ fontSize: 19, margin: 0 }}>Mesh Console</h1>
-          {onChangeName && (
+      {/* CARD 1: Device Header */}
+      <div className="sidebar-card brand-card" style={{ padding: "12px 14px" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div>
+            <div style={{ fontSize: 10.5, fontFamily: "var(--mono)", color: "var(--signal)", letterSpacing: "0.08em", fontWeight: 700, textTransform: "uppercase" }}>
+              DEVICE NAME
+            </div>
+            <div style={{ fontSize: 16, fontWeight: 800, color: "var(--text)", marginTop: 2 }}>
+              {selfNode ? selfNode.name : "Device Node"}
+            </div>
+          </div>
+          {onClose && (
             <button
-              onClick={onChangeName}
-              style={{
-                background: "rgba(51, 214, 166, 0.12)",
-                border: "1px solid rgba(51, 214, 166, 0.3)",
-                color: "var(--signal)",
-                borderRadius: "6px",
-                padding: "3px 8px",
-                fontSize: "11px",
-                fontWeight: 700,
-                cursor: "pointer"
-              }}
-              title="Change your device display name"
+              onClick={onClose}
+              className="sidebar-collapse-btn"
+              title="Hide sidebar"
+              aria-label="Hide sidebar"
             >
-              ✏️ Rename
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <line x1="18" y1="6" x2="6" y2="18"/>
+                <line x1="6" y1="6" x2="18" y2="18"/>
+              </svg>
             </button>
           )}
-        </div>
-        <div className="sub" style={{ fontSize: 13, color: "var(--muted)" }}>
-          <span style={{ color: "var(--signal)", fontWeight: 800 }}>{connectedCount}</span> WebRTC Links · <span style={{ fontWeight: 800, color: "var(--text)" }}>{graph.nodes.length}</span> Nodes Known
-          {selfNode && <div style={{ fontSize: 11.5, color: "var(--text-secondary)", marginTop: 2 }}>Device Name: <strong>{selfNode.name}</strong></div>}
         </div>
       </div>
 
@@ -185,37 +180,19 @@ export function Sidebar({
               {locationEnabled ? "✓ ON" : "○ OFF"}
             </button>
           </div>
-          {setManualLocation && (
-            <button className="location-btn-action" onClick={setManualLocation} style={{ marginTop: 8 }}>
-              📍 {locationStatus.isManual ? "Change Manual Location" : "Set Demo/Manual Coordinates"}
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* CARD 5: Rescue Module Launchpad */}
-      <div className="sidebar-card">
-        <div className="card-header-sm" style={{ marginBottom: 10 }}>
-          <span className="card-title-sm">🚀 Rescue Module Launchpad</span>
-        </div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          <a href="/echolocate" className="tiny-btn" style={{ display: "block", textAlign: "center", textDecoration: "none", color: "#33D6A6", borderColor: "rgba(51,214,166,0.35)", padding: "8px", fontSize: 12.5, fontWeight: 700 }}>
-            📡 EchoLocate 3D Map ↗
-          </a>
-          <a href="/pulseseeker" className="tiny-btn" style={{ display: "block", textAlign: "center", textDecoration: "none", color: "#FF4B5C", borderColor: "rgba(255,75,92,0.35)", padding: "8px", fontSize: 12.5, fontWeight: 700 }}>
-            🆘 PulseSeeker Rescue AI ↗
-          </a>
-          <a href="/lifeboat" className="tiny-btn" style={{ display: "block", textAlign: "center", textDecoration: "none", color: "#F0A63C", borderColor: "rgba(240,166,60,0.35)", padding: "8px", fontSize: 12.5, fontWeight: 700 }}>
-            🚤 Lifeboat Priority Queues ↗
-          </a>
         </div>
       </div>
 
       {/* Action Footer */}
-      <div style={{ marginTop: "auto", paddingTop: 6 }}>
+      <div style={{ marginTop: "auto", paddingTop: 6, display: "flex", flexDirection: "column", gap: 6 }}>
+        {onLeaveMesh && (
+          <button className="btn-offline" onClick={onLeaveMesh} style={{ fontSize: 12.5, padding: "8px", fontWeight: 700, background: "rgba(240,166,60,0.12)", color: "#f5b963", borderColor: "rgba(240,166,60,0.3)" }}>
+            🚪 Leave Mesh (Re-enter Name)
+          </button>
+        )}
         {online
-          ? <button className="btn-offline" id="go-offline-btn" onClick={goOffline} style={{ fontSize: 13, padding: "10px", fontWeight: 700 }}>⚠ Simulate Node Failure</button>
-          : <button className="btn-online" id="go-online-btn" onClick={goOnline} style={{ fontSize: 13, padding: "10px", fontWeight: 700 }}>↻ Reconnect Node</button>}
+          ? <button className="btn-offline" id="go-offline-btn" onClick={goOffline} style={{ fontSize: 12.5, padding: "8px", fontWeight: 700 }}>⚠ Simulate Node Failure</button>
+          : <button className="btn-online" id="go-online-btn" onClick={goOnline} style={{ fontSize: 12.5, padding: "8px", fontWeight: 700 }}>↻ Reconnect Node</button>}
       </div>
 
     </div>

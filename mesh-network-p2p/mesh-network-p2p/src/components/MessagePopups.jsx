@@ -227,7 +227,7 @@ function PopupCard({ item, onDismiss, onReply, onExpandImage }) {
         {item.mediaKind === "voice" && item.mediaUrl && (
           <div className="msg-popup-media-container voice-container">
             <div className="msg-popup-voice-header">🎤 Voice Message</div>
-            <audio controls src={item.mediaUrl} className="msg-popup-audio-player" />
+            <audio controls playsInline preload="metadata" src={item.mediaUrl} className="msg-popup-audio-player" />
           </div>
         )}
 

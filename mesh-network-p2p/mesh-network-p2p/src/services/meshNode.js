@@ -247,7 +247,12 @@ export class MeshNode {
 
   connectToPeer(peerId, peerName, isInitiator) {
     if (this.peers.has(peerId)) return;
-    const conn = new RTCPeerConnection({ iceServers: [] });
+    const conn = new RTCPeerConnection({
+      iceServers: [
+        { urls: "stun:stun.l.google.com:19302" },
+        { urls: "stun:global.stun.twilio.com:3478" }
+      ]
+    });
     const entry = { conn, channel: null, name: peerName, state: "connecting" };
     this.peers.set(peerId, entry);
     this.cb.onPeerState();

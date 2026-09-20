@@ -72,7 +72,7 @@ export default defineConfig({
         },
       },
       '/sync': {
-        target: 'http://127.0.0.1:4002',
+        target: 'http://127.0.0.1:4001',
         configure: (proxy) => {
           proxy.on('error', (err, _req, res) => {
             if (isIgnoredError(err)) {
@@ -86,7 +86,7 @@ export default defineConfig({
         },
       },
       '/echolocate-api': {
-        target: 'http://127.0.0.1:4003',
+        target: 'http://127.0.0.1:4001',
         configure: (proxy) => {
           proxy.on('error', (err, _req, res) => {
             if (isIgnoredError(err)) {
@@ -100,7 +100,7 @@ export default defineConfig({
         },
       },
       '/model': {
-        target: 'http://127.0.0.1:4002',
+        target: 'http://127.0.0.1:4001',
         configure: (proxy) => {
           proxy.on('error', (err, _req, res) => {
             if (isIgnoredError(err)) {
@@ -114,7 +114,7 @@ export default defineConfig({
         },
       },
       '/state': {
-        target: 'http://127.0.0.1:4002',
+        target: 'http://127.0.0.1:4001',
         configure: (proxy) => {
           proxy.on('error', (err, _req, res) => {
             if (isIgnoredError(err)) {
@@ -128,7 +128,7 @@ export default defineConfig({
         },
       },
       '/api': {
-        target: 'http://127.0.0.1:4004',
+        target: 'http://127.0.0.1:4001',
         configure: (proxy) => {
           proxy.on('error', (err, _req, res) => {
             if (isIgnoredError(err)) {

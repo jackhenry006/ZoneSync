@@ -75,54 +75,63 @@ export class PulseSeeker {
   async requestMicrophone() {
     if (this.micStream) return true;
 
-    if (window.isSecureContext === false && window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1") {
-      throw new Error("Microphone access requires HTTPS or localhost (Secure Context).");
-    }
-
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      throw new Error("getUserMedia media devices API not available in this browser.");
-    }
-
-    this.micStream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        echoCancellation: false,
-        noiseSuppression: false,
-        autoGainControl: false
+    try {
+      if (typeof window !== "undefined" && window.isSecureContext === false && window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1") {
+        console.warn("[PulseSeeker] Microphone access requires HTTPS or localhost (Secure Context). Operating in acoustic simulation mode.");
+        return false;
       }
-    });
 
-    const AudioCtxClass = window.AudioContext || window.webkitAudioContext;
-    this.audioCtx = new AudioCtxClass();
-    if (this.audioCtx.state === "suspended") {
-      await this.audioCtx.resume();
-    }
-
-    const source = this.audioCtx.createMediaStreamSource(this.micStream);
-    this.analyser = this.audioCtx.createAnalyser();
-    this.analyser.fftSize = 1024;
-    this.analyser.smoothingTimeConstant = 0.6;
-
-    source.connect(this.analyser);
-
-    // Audio Worklet / ScriptProcessor for audio sample buffers
-    this.scriptNode = this.audioCtx.createScriptProcessor(2048, 1, 1);
-    const silentGain = this.audioCtx.createGain();
-    silentGain.gain.value = 0;
-
-    this.scriptNode.onaudioprocess = (e) => {
-      if (!this.isRunning) return;
-      const samples = e.inputBuffer.getChannelData(0);
-      this.audioBufferQueue.push(new Float32Array(samples));
-      if (this.audioBufferQueue.length > 20) {
-        this.audioBufferQueue.shift();
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        console.warn("[PulseSeeker] getUserMedia API not available. Operating in acoustic simulation mode.");
+        return false;
       }
-    };
 
-    source.connect(this.scriptNode);
-    this.scriptNode.connect(silentGain);
-    silentGain.connect(this.audioCtx.destination);
+      this.micStream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false
+        }
+      });
 
-    return true;
+      const AudioCtxClass = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtxClass) return false;
+
+      this.audioCtx = new AudioCtxClass();
+      if (this.audioCtx.state === "suspended") {
+        await this.audioCtx.resume();
+      }
+
+      const source = this.audioCtx.createMediaStreamSource(this.micStream);
+      this.analyser = this.audioCtx.createAnalyser();
+      this.analyser.fftSize = 1024;
+      this.analyser.smoothingTimeConstant = 0.6;
+
+      source.connect(this.analyser);
+
+      // Audio Worklet / ScriptProcessor for audio sample buffers
+      this.scriptNode = this.audioCtx.createScriptProcessor(2048, 1, 1);
+      const silentGain = this.audioCtx.createGain();
+      silentGain.gain.value = 0;
+
+      this.scriptNode.onaudioprocess = (e) => {
+        if (!this.isRunning) return;
+        const samples = e.inputBuffer.getChannelData(0);
+        this.audioBufferQueue.push(new Float32Array(samples));
+        if (this.audioBufferQueue.length > 20) {
+          this.audioBufferQueue.shift();
+        }
+      };
+
+      source.connect(this.scriptNode);
+      this.scriptNode.connect(silentGain);
+      silentGain.connect(this.audioCtx.destination);
+
+      return true;
+    } catch (err) {
+      console.warn("[PulseSeeker] Microphone request fallback:", err.message);
+      return false;
+    }
   }
 
   // Monitor DeviceMotion accelerometer sensor

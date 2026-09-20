@@ -18,11 +18,10 @@ export function LifeboatPanel() {
   const [activeTab, setActiveTab] = useState("simulator");
 
   // Custom sensor state
-  const [motionValue, setMotionValue] = useState(1.2);
-  const [lightValue, setLightValue] = useState(250);
-  const [waterDetected, setWaterDetected] = useState(false);
-  const [barometerValue, setBarometerValue] = useState(1013.25);
-  const [customDeviceId, setCustomDeviceId] = useState("device-node-alpha");
+  const [stillnessMins, setStillnessMins] = useState(10);
+  const [ambientLight, setAmbientLight] = useState(0);
+  const [battery, setBattery] = useState(15);
+  const [nearWater, setNearWater] = useState(false);
   const [dispatchedAlerts, setDispatchedAlerts] = useState([]);
 
   // Calculate default state on mount
@@ -126,8 +125,8 @@ export function LifeboatPanel() {
         const p = localResult.priority;
         return {
           ...prev,
-          [p]: (prev[p] || 0) + 1,
-          totalQueued: prev.totalQueued + 1
+          [p]: ((prev && prev[p]) || 0) + 1,
+          totalQueued: ((prev && prev.totalQueued) || 0) + 1
         };
       });
     } catch (e) {
@@ -171,8 +170,8 @@ export function LifeboatPanel() {
       setDispatchedAlerts(prev => [newAlert, ...prev].slice(0, 20));
       setQueueStats(prev => ({
         ...prev,
-        critical: Math.max(0, prev.critical - 1),
-        totalProcessed: prev.totalProcessed + 1
+        critical: Math.max(0, ((prev && prev.critical) || 0) - 1),
+        totalProcessed: ((prev && prev.totalProcessed) || 0) + 1
       }));
     }
   }
