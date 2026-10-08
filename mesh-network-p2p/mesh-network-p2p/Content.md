@@ -1,4 +1,4 @@
-# ⚡ ZoneSync / CrisisLink: Offline Disaster Mesh & Passive Rescue System
+# ⚡ ZoneSync: Smart Indoor & Remote Coordination
 
 ---
 
