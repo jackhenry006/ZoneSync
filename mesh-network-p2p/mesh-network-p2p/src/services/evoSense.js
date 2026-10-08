@@ -1,8 +1,8 @@
-// ===== EchoLocate Client Audio Engine & Network Coordinator =====
+// ===== EvoSense Client Audio Engine & Network Coordinator =====
 // Handles Web Audio API setup, LFM chirp signal generation, mic audio capture,
 // matched-filter cross-correlation for arrival timing, and WebSocket coordination.
 
-export class EchoLocateEngine {
+export class EvoSenseEngine {
   constructor(socket, nodeId, nodeName, callbacks = {}) {
     this.socket = socket;
     this.nodeId = nodeId;
@@ -179,7 +179,11 @@ export class EchoLocateEngine {
       this.callbacks.onRoundState({ status: "completed", roundId: posData.roundId, lastUpdated: Date.now() });
     });
 
-    this.socket.emit("echolocate:register", { id: this.nodeId, name: this.nodeName });
+    const reg = { id: this.nodeId, name: this.nodeName };
+    this.socket.emit("echolocate:register", reg);
+    this.socket.on("connect", () => {
+      this.socket.emit("echolocate:register", reg);
+    });
   }
 
   // Play a chirp buffer at a specific AudioContext hardware time
@@ -240,23 +244,24 @@ export class EchoLocateEngine {
 
   // Handle server Pinger turn event
   async handlePingerTurn(turnData) {
-    if (!this.audioCtx) return;
-    const { roundId, pingerId, responderSlots, baseDelayMs, stepDelayMs } = turnData;
+    const { roundId, pingerId, responderSlots = {}, baseDelayMs = 100, stepDelayMs = 150 } = turnData;
 
     if (pingerId === this.nodeId) {
       // THIS NODE IS THE PINGER: Chirp, listen for responder ACKs, time RTTs
       this.callbacks.onRoundState({ status: "chirping_self", roundId, pingerName: "You" });
 
-      const emitTime = this.audioCtx.currentTime + 0.05; // 50ms ahead
-      this.playBuffer(this.chirpTemplate, emitTime);
+      if (this.audioCtx && this.chirpTemplate) {
+        const emitTime = this.audioCtx.currentTime + 0.05; // 50ms ahead
+        this.playBuffer(this.chirpTemplate, emitTime);
+      }
 
       const measurements = {};
-      const responderList = Object.entries(responderSlots); // [ [targetId, slotIdx], ... ]
+      const responderList = Object.entries(responderSlots || {}); // [ [targetId, slotIdx], ... ]
 
-      if (responderList.length === 0 || !this.micStream) {
+      if (responderList.length === 0 || !this.micStream || !this.audioCtx) {
         setTimeout(() => {
           this.socket.emit("echolocate:report_measurements", { roundId, measurements });
-        }, 800);
+        }, 500);
         return;
       }
 
@@ -404,3 +409,6 @@ export class EchoLocateEngine {
     }
   }
 }
+
+export { EvoSenseEngine as EchoLocateEngine };
+

@@ -93,8 +93,8 @@ export function Navbar() {
           <NavLink to="/pulseseeker" className={({ isActive }) => `nav-tab ${isActive ? 'active' : ''}`}>
             <span>⚡</span> InertiaSense
           </NavLink>
-          <NavLink to="/dashboard" className={({ isActive }) => `nav-tab hide-on-mobile ${isActive ? 'active' : ''}`}>
-            <span>☁️</span> Cloud Dashboard
+          <NavLink to="/classifier" className={({ isActive }) => `nav-tab hide-on-mobile ${isActive ? 'active' : ''}`}>
+            <span>🧠</span> AI Classifier
           </NavLink>
 
           <button

@@ -115,7 +115,7 @@ flowchart TD
 - **HTML5 FileReader & Canvas Compression**: In-browser image downsampling to optimize packet sizes for mesh transmission.
 
 ### Backend Services
-- **Node.js & Express 5**: Lightweight, modular backend micro-servers for signaling, cloud telemetry sync, acoustic localization, and lifeboat scoring.
+- **Node.js & Express 5**: Lightweight, modular backend micro-servers for signaling, cloud telemetry sync, and acoustic localization.
 
 ---
 
@@ -214,7 +214,6 @@ npm run start:cloud
 
 # 3. Start Standalone EchoLocate Server (Port 4003)
 npm run start:echolocate
-
 
 # 5. Launch Frontend Dev Server (Port 3000 / HTTPS Network Access)
 npm run dev -- --host

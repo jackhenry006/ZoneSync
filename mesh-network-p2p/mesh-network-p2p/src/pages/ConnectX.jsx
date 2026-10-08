@@ -14,7 +14,7 @@ import {
   generateSyntheticVoiceDispatch,
 } from '../utils/audioUtils.js';
 
-export function MeshConsole() {
+export function ConnectX() {
   const [socket] = useState(() => io(import.meta.env.VITE_BACKEND_URL || undefined));
   const [name, setName] = useState(() => {
     try {
@@ -31,7 +31,19 @@ export function MeshConsole() {
     }
   });
   const [online, setOnline] = useState(true);
-  const [selfId] = useState(() => uid());
+  const [selfId] = useState(() => {
+    try {
+      let saved = localStorage.getItem("mesh_node_id") || sessionStorage.getItem("mesh_node_id");
+      if (!saved) {
+        saved = uid();
+        localStorage.setItem("mesh_node_id", saved);
+        sessionStorage.setItem("mesh_node_id", saved);
+      }
+      return saved;
+    } catch (e) {
+      return uid();
+    }
+  });
   const meshRef = useRef(null);
   const [graph, setGraph] = useState({ nodes: [], links: [] });
   const [peerStates, setPeerStates] = useState([]);
@@ -159,25 +171,28 @@ export function MeshConsole() {
         const meta = `received from ${envelope.from}${lockTag}${loc ? ` · 📍 ${loc.lat.toFixed(5)}, ${loc.lng.toFixed(5)} (±${loc.accuracy}m)` : ""}`;
         setLog(l => [{ id: uid(), tag: "delivered", text: `"${envelope.text}"`, meta, mapUrl: loc ? `https://www.google.com/maps?q=${loc.lat},${loc.lng}` : null, time: now() }, ...l].slice(0, 100));
 
-        const senderNode = meshRef.current?.linkState.get(envelope.from) || graph.nodes.find(n => n.id === envelope.from);
-        const fromName = senderNode ? senderNode.name : envelope.from;
+        const isSurvivorBeacon = /survivor|inertiasense|beacon|unconscious|tapping|pulseseeker/i.test(envelope.text || "");
+        if (!isSurvivorBeacon) {
+          const senderNode = meshRef.current?.linkState.get(envelope.from) || graph.nodes.find(n => n.id === envelope.from);
+          const fromName = senderNode ? senderNode.name : envelope.from;
 
-        setPopups(prev => [
-          {
-            id: uid(),
-            from: envelope.from,
-            fromName: fromName,
-            urgency: envelope.urgency,
-            text: envelope.text,
-            location: loc,
-            mapUrl: loc ? `https://www.google.com/maps?q=${loc.lat},${loc.lng}` : null,
-            encrypted: envelope.encrypted,
-            verified: envelope.verified,
-            timestamp: Date.now(),
-            path: envelope.path,
-          },
-          ...prev
-        ].slice(0, 10));
+          setPopups(prev => [
+            {
+              id: uid(),
+              from: envelope.from,
+              fromName: fromName,
+              urgency: envelope.urgency,
+              text: envelope.text,
+              location: loc,
+              mapUrl: loc ? `https://www.google.com/maps?q=${loc.lat},${loc.lng}` : null,
+              encrypted: envelope.encrypted,
+              verified: envelope.verified,
+              timestamp: Date.now(),
+              path: envelope.path,
+            },
+            ...prev
+          ].slice(0, 10));
+        }
       },
       onMediaProgress: ({ mediaId, kind, received, total }) => {
         setMediaProgress(p => ({ ...p, [mediaId]: { kind, received, total } }));
@@ -246,6 +261,53 @@ export function MeshConsole() {
       meshRef.current = null;
     };
   }, [joined, name, selfId, socket]);
+
+  // Listen for emergency survivor beacons broadcast by InertiaSense via the signaling server
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleSurvivorBeacon = (beacon) => {
+      if (!beacon) return;
+      const now = () => new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+      const rawType = beacon.type || 'tapping';
+      const confidence = beacon.confidence || 80;
+      const env = beacon.environment || 'debris-rubble';
+      const loc = beacon.location || (typeof beacon.lat === 'number' ? { lat: beacon.lat, lng: beacon.lng, accuracy: beacon.accuracy || 10 } : null);
+      const mapUrl = loc ? `https://www.google.com/maps?q=${loc.lat},${loc.lng}` : null;
+      const locStr = loc ? ` · 📍 ${loc.lat.toFixed(5)}, ${loc.lng.toFixed(5)} (±${loc.accuracy || 5}m)` : '';
+
+      const logText = `[InertiaSense] 🆘 Emergency Survivor Beacon Received: ${rawType} (${confidence}% confidence)`;
+      const meta = `🆘 InertiaSense AI Survivor Beacon (${confidence}% confidence · ${env})${locStr}`;
+      const beaconId = beacon.beaconId || beacon.id || uid();
+
+      setLog((l) => {
+        if (l.some((entry) => entry.id === beaconId || (entry.text === logText && Math.abs((entry.ts || Date.now()) - (beacon.receivedAt || Date.now())) < 4000))) {
+          return l;
+        }
+        return [
+          {
+            id: beaconId,
+            tag: "critical",
+            text: logText,
+            meta,
+            mapUrl,
+            ts: beacon.receivedAt || beacon.timestamp || Date.now(),
+            time: now(),
+          },
+          ...l,
+        ].slice(0, 100);
+      });
+    };
+
+    socket.on("inertiasense:beacon_received", handleSurvivorBeacon);
+    socket.on("pulseseeker:beacon_received", handleSurvivorBeacon);
+
+    return () => {
+      socket.off("inertiasense:beacon_received", handleSurvivorBeacon);
+      socket.off("pulseseeker:beacon_received", handleSurvivorBeacon);
+    };
+  }, [socket, name]);
 
   const [sidebarOpen, setSidebarOpen] = useState(() => {
     try {
@@ -703,6 +765,23 @@ export function MeshConsole() {
     }
   }
 
+  function leaveMesh() {
+    try {
+      sessionStorage.removeItem("mesh_joined");
+      localStorage.removeItem("mesh_node_name");
+      sessionStorage.removeItem("mesh_node_name");
+      localStorage.removeItem("mesh_node_id");
+      sessionStorage.removeItem("mesh_node_id");
+    } catch (e) {}
+    if (meshRef.current) {
+      meshRef.current.goOffline();
+      meshRef.current.destroy();
+      meshRef.current = null;
+    }
+    setJoined(false);
+    setName("");
+  }
+
   return (
     <div className={`app ${sidebarOpen ? "sidebar-open" : "sidebar-closed"}`}>
       <MessagePopups
@@ -745,55 +824,58 @@ export function MeshConsole() {
         />
       )}
       <div className="stage">
-        {/* Top Command Bar */}
-        <div className="stage-header-bar">
-          <div className="stage-status-pills">
-            {/* Left Sidebar Visibility Toggle */}
-            <button
-              id="sidebar-toggle-btn"
-              className={`stage-action-btn sidebar-toggle-btn ${sidebarOpen ? "active" : ""}`}
-              onClick={toggleSidebar}
-              title={sidebarOpen ? "Hide left sidebar (moves messages to left)" : "Show left sidebar"}
-              aria-label={sidebarOpen ? "Hide left sidebar" : "Show left sidebar"}
-            >
-              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.2" style={{ verticalAlign: "middle", marginRight: 5 }}>
-                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
-                <line x1="9" y1="3" x2="9" y2="21"/>
-              </svg>
-              <span>{sidebarOpen ? "Hide Sidebar" : "Show Sidebar"}</span>
-            </button>
+        {/* Top Command Bar & Hint Overlay Container */}
+        <div className="stage-top-overlay">
+          <div className="stage-header-bar">
+            <div className="stage-status-pills">
+              {/* Left Sidebar Visibility Toggle */}
+              <button
+                id="sidebar-toggle-btn"
+                className={`stage-action-btn sidebar-toggle-btn ${sidebarOpen ? "active" : ""}`}
+                onClick={toggleSidebar}
+                title={sidebarOpen ? "Hide left sidebar (moves messages to left)" : "Show left sidebar"}
+                aria-label={sidebarOpen ? "Hide left sidebar" : "Show left sidebar"}
+              >
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.2" style={{ verticalAlign: "middle", marginRight: 5 }}>
+                  <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                  <line x1="9" y1="3" x2="9" y2="21"/>
+                </svg>
+                <span>{sidebarOpen ? "Hide Sidebar" : "Show Sidebar"}</span>
+              </button>
 
-            <div className="stage-pill">
-              <span className="live-dot pulse"></span>
-              <span><strong>{graph.nodes.length}</strong> Nodes</span>
+              <div className="stage-pill">
+                <span className="live-dot pulse"></span>
+                <span><strong>{graph.nodes.length}</strong> Nodes</span>
+              </div>
+              <div className="stage-pill">
+                <span className="live-dot pulse" style={{ background: "#4B9EFF", boxShadow: "0 0 8px #4B9EFF" }}></span>
+                <span><strong>{peerStates.filter(p => p.state === "connected").length}</strong> Links</span>
+              </div>
+              <div className="stage-pill">
+                <span style={{ fontSize: 12 }}>🔒</span>
+                <span>E2E: <strong>{cryptoStatus.ready ? "Active" : "Offline"}</strong></span>
+              </div>
             </div>
-            <div className="stage-pill">
-              <span className="live-dot pulse" style={{ background: "#4B9EFF", boxShadow: "0 0 8px #4B9EFF" }}></span>
-              <span><strong>{peerStates.filter(p => p.state === "connected").length}</strong> Links</span>
-            </div>
-            <div className="stage-pill">
-              <span style={{ fontSize: 12 }}>🔒</span>
-              <span>E2E: <strong>{cryptoStatus.ready ? "Active" : "Offline"}</strong></span>
+
+            <div className="stage-actions">
+              <button className="stage-action-btn" onClick={() => setLinkMode(m => !m)}>
+                {linkMode ? "✓ Done Links" : "⚡ Manage Links"}
+              </button>
+              {online ? (
+                <button className="stage-action-btn danger" onClick={goOffline}>⚠ Simulate Failure</button>
+              ) : (
+                <button className="stage-action-btn success" onClick={goOnline}>↻ Reconnect</button>
+              )}
             </div>
           </div>
 
-          <div className="stage-actions">
-            <button className="stage-action-btn" onClick={() => setLinkMode(m => !m)}>
-              {linkMode ? "✓ Done Links" : "⚡ Manage Direct Links"}
-            </button>
-            {online ? (
-              <button className="stage-action-btn danger" onClick={goOffline}>⚠ Simulate Failure</button>
-            ) : (
-              <button className="stage-action-btn success" onClick={goOnline}>↻ Reconnect</button>
-            )}
+          <div className="hint">
+            {linkMode
+              ? "🔗 Click a node to open/close a direct WebRTC link (only your own links)"
+              : "Live topology — learned by gossip, every node computes its own routes locally"}
           </div>
         </div>
 
-        <div className="hint" style={{ fontSize: 14.5, padding: "10px 16px" }}>
-          {linkMode
-            ? "🔗 Click a node to open/close a direct WebRTC link (only your own links)"
-            : "Live topology — learned by gossip, every node computes its own routes locally"}
-        </div>
         <MeshCanvas
           nodes={graph.nodes}
           links={graph.links}
@@ -839,3 +921,5 @@ export function MeshConsole() {
     </div>
   );
 }
+
+export { ConnectX as MeshConsole };

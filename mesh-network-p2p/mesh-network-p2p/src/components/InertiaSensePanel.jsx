@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
-import { PulseSeeker } from "../services/pulseSeeker.js";
+import { InertiaSense } from "../services/inertiaSense.js";
 
-export function PulseSeekerPanel({ meshNode }) {
+export function InertiaSensePanel({ meshNode, socket, selfId, selfName }) {
   const seekerRef = useRef(null);
 
   const [status, setStatus] = useState({
@@ -19,7 +19,8 @@ export function PulseSeekerPanel({ meshNode }) {
   });
 
   const [beacons, setBeacons] = useState([]);
-  const [activeTab, setActiveTab] = useState("telemetry"); // 'telemetry' | 'beacons' | 'sim'
+  const [activeTab, setActiveTab] = useState("telemetry"); // 'telemetry' | 'beacons'
+  const [notification, setNotification] = useState(null);
 
   const isLocalIpInsecure =
     typeof window !== "undefined" &&
@@ -27,11 +28,19 @@ export function PulseSeekerPanel({ meshNode }) {
     window.location.hostname !== "localhost" &&
     window.location.hostname !== "127.0.0.1";
 
-  // Initialize PulseSeeker on mount
+  function showNotification(msg) {
+    setNotification(msg);
+    setTimeout(() => {
+      setNotification((curr) => (curr === msg ? null : curr));
+    }, 4500);
+  }
+
+  // Initialize InertiaSense on mount
   useEffect(() => {
-    const seeker = new PulseSeeker({
+    const seeker = new InertiaSense({
       meshNode,
-      inertiaTimeoutMs: 15000, // 15 seconds for quick testing, 5 minutes in production
+      socket,
+      inertiaTimeoutMs: 15000, // 15 seconds for responsive testing
     });
     seekerRef.current = seeker;
 
@@ -39,18 +48,52 @@ export function PulseSeekerPanel({ meshNode }) {
       onStatus: (st) => setStatus((prev) => ({ ...prev, ...st })),
       onTelemetry: (data) => setTelemetry(data),
       onDetection: (detection) => {
-        setBeacons((prev) => [detection, ...prev].slice(0, 30));
+        setBeacons((prev) => {
+          if (prev.some((b) => b.id === detection.id || b.beaconId === detection.id)) return prev;
+          return [detection, ...prev].slice(0, 30);
+        });
+        showNotification(`🚨 New Emergency Beacon: ${detection.type.toUpperCase()} (${detection.confidence}% confidence)`);
       },
-      onError: (err) => console.warn("[PulseSeeker]", err),
+      onError: (err) => console.warn("[InertiaSense]", err),
     });
+
+    // Listen to incoming emergency beacons from signaling server
+    if (socket) {
+      const handleIncomingBeacon = (beaconEntry) => {
+        const item = {
+          id: beaconEntry.beaconId || beaconEntry.id || `beacon-${Date.now()}`,
+          type: beaconEntry.type || "unconscious",
+          confidence: beaconEntry.confidence || 90,
+          timestamp: beaconEntry.timestamp || beaconEntry.receivedAt || Date.now(),
+          location: beaconEntry.location || { lat: 37.7749, lng: -122.4194, accuracy: 8 },
+          environment: beaconEntry.environment || "debris-rubble",
+          deviceInfo: beaconEntry.deviceInfo || {},
+        };
+        setBeacons((prev) => {
+          if (prev.some((b) => b.id === item.id)) return prev;
+          return [item, ...prev].slice(0, 30);
+        });
+        showNotification(`🆘 Broadcast Beacon Received: ${item.type.toUpperCase()} (${item.confidence}%)`);
+      };
+
+      socket.on("inertiasense:beacon_received", handleIncomingBeacon);
+      socket.on("pulseseeker:beacon_received", handleIncomingBeacon);
+
+      return () => {
+        socket.off("inertiasense:beacon_received", handleIncomingBeacon);
+        socket.off("pulseseeker:beacon_received", handleIncomingBeacon);
+        seeker.stop();
+      };
+    }
 
     return () => {
       seeker.stop();
     };
-  }, [meshNode]);
+  }, [meshNode, socket]);
 
-  function handleActivateSensors() {
+  async function handleActivateSensors() {
     if (seekerRef.current) {
+      const micGranted = await seekerRef.current.requestMicrophone();
       seekerRef.current.init({
         onStatus: (st) => setStatus((prev) => ({ ...prev, ...st })),
         onTelemetry: (data) => setTelemetry(data),
@@ -58,24 +101,35 @@ export function PulseSeekerPanel({ meshNode }) {
           setBeacons((prev) => [detection, ...prev].slice(0, 30));
         },
       });
+      if (micGranted) {
+        showNotification("🎤 Acoustic & Inertial Sensors Activated Successfully");
+      } else {
+        showNotification("🛡️ Inertial Motion Tracking Activated (Mic deferred or unavailable)");
+      }
     }
   }
 
   function handleSimulateTapping() {
+    setActiveTab("telemetry");
     if (seekerRef.current) {
       seekerRef.current.simulateTapping();
+      showNotification("🔨 Simulated 3.2 Hz Wall Tapping Pattern — AI Analyzing Cadence...");
     }
   }
 
   function handleSimulateInertia() {
+    setActiveTab("telemetry");
     if (seekerRef.current) {
       seekerRef.current.simulateInertia();
+      showNotification("🛌 Simulated Prolonged Immobility (>5 mins Stillness) — AI Alert Triggered!");
     }
   }
 
   function handleTriggerAutoBeacon() {
     if (seekerRef.current) {
-      seekerRef.current.triggerDetection("unconscious", 0.95, telemetry.features);
+      seekerRef.current.triggerDetection("unconscious", 0.95, telemetry.features, true);
+      setActiveTab("beacons");
+      showNotification("🚨 Emergency Auto-Beacon Broadcasted over P2P Mesh & Cloud REST API!");
     }
   }
 
@@ -87,10 +141,7 @@ export function PulseSeekerPanel({ meshNode }) {
       {/* PulseSeeker Header */}
       <div className="pulseseeker-header">
         <div className="pulseseeker-title">
-          <h2>🆘 InertiaSense — AI Passive Victim Detection</h2>
-          <div className="pulseseeker-subtitle">
-            Acoustic Tapping & Inertia Monitoring
-          </div>
+          <h2>🆘 InertiaSense</h2>
         </div>
 
         <div className="pulseseeker-badges">
@@ -100,20 +151,54 @@ export function PulseSeekerPanel({ meshNode }) {
             <span className="status-tag status-off">○ Standby / Requires Activation</span>
           )}
           <span className="status-tag status-env">📍 Env: {telemetry.environment}</span>
+          <span
+            className="status-tag"
+            style={{
+              background: telemetry.hasAcousticTrigger ? "rgba(34, 197, 94, 0.18)" : "rgba(255, 255, 255, 0.06)",
+              color: telemetry.hasAcousticTrigger ? "#22C55E" : "var(--text-muted)",
+              border: `1px solid ${telemetry.hasAcousticTrigger ? "rgba(34, 197, 94, 0.4)" : "var(--border-color)"}`,
+              fontSize: "13.5px",
+              padding: "6px 14px",
+              borderRadius: "20px",
+              fontWeight: 700,
+            }}
+          >
+            {telemetry.hasAcousticTrigger ? "🔊 Sound Trigger: ACTIVE" : "🔇 Sound Trigger: WAITING"}
+          </span>
         </div>
       </div>
 
-      {/* Core Design & Passive Rescue Note */}
-      <div className="pulseseeker-notice">
-        ℹ️ <strong>Passive Detection System:</strong> Designed for unconscious or trapped survivors who cannot press SOS buttons or call for help. Uses browser sensors (Web Audio MFCC/rhythm analysis + DeviceMotion accelerometer) to continuously listen for 2–4 Hz tapping on walls/debris and detect prolonged stillness.
-      </div>
-
-      {/* Insecure Context Warning for HTTP over Local IP */}
-      {isLocalIpInsecure && (
-        <div className="pulseseeker-warning">
-          🔒 <strong>Browser Security Constraint (Local IP Access):</strong><br />
-          You are opening over HTTP local IP (<code>{window.location.host}</code>). Browsers disable microphone access on HTTP over local IP.<br />
-          <em>Use the <strong>"⚡ Simulation Suite"</strong> buttons below to test tapping detection, inertia alerts, and P2P mesh auto-beacons!</em>
+      {/* Live System Feedback Banner */}
+      {notification && (
+        <div
+          style={{
+            background: "rgba(255, 176, 0, 0.15)",
+            border: "1px solid #FFB000",
+            color: "#FFB000",
+            padding: "12px 18px",
+            borderRadius: "10px",
+            fontWeight: 600,
+            fontSize: "14px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            animation: "fadeSlideIn 0.25s ease",
+          }}
+        >
+          <span>{notification}</span>
+          <button
+            onClick={() => setNotification(null)}
+            style={{
+              background: "transparent",
+              border: "none",
+              color: "#FFB000",
+              cursor: "pointer",
+              fontSize: "16px",
+              padding: "0 6px",
+            }}
+          >
+            ✕
+          </button>
         </div>
       )}
 
@@ -271,3 +356,6 @@ export function PulseSeekerPanel({ meshNode }) {
     </div>
   );
 }
+
+export { InertiaSensePanel as PulseSeekerPanel };
+

@@ -6,8 +6,9 @@ export function MeshCanvas({ nodes, links, activeHop, selfId, onNodeClick, linkM
   const particlesRef = useRef([]);
 
   const layout = useCallback((width, height) => {
-    const cx = width / 2, cy = height / 2;
-    const r = Math.min(width, height) * 0.32;
+    const cx = width / 2;
+    const cy = height / 2 + 18;
+    const r = Math.min(width * 0.36, height * 0.28);
     nodes.forEach((n, i) => {
       const angle = (i / Math.max(nodes.length, 1)) * Math.PI * 2 - Math.PI / 2;
       posRef.current[n.id] = { x: cx + r * Math.cos(angle), y: cy + r * Math.sin(angle) };

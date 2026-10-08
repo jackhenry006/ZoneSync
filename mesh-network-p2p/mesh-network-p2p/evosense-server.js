@@ -269,6 +269,13 @@ function setupEchoLocate(io) {
 
   io.on("connection", (socket) => {
     socket.on("echolocate:register", ({ id, name }) => {
+      // Remove any stale entries with the same node id or same name
+      for (const [sId, node] of echoNodes.entries()) {
+        if (node.id === id || (node.name === name && sId !== socket.id)) {
+          echoNodes.delete(sId);
+        }
+      }
+
       echoNodes.set(socket.id, { id, name, socketId: socket.id, alive: true, lastSeen: Date.now() });
       socket.data.nodeId = id;
       socket.data.name = name;
@@ -288,7 +295,7 @@ function setupEchoLocate(io) {
         timestamp: Date.now(),
         durationMs: 0,
         positions: initialResult.positions,
-        distances: [],
+        distances: initialResult.distances || [],
         nodeCount: activeNodes.length,
         speedOfSound: CONFIG.SPEED_OF_SOUND,
       });

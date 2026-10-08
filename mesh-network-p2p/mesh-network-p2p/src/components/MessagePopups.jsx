@@ -74,17 +74,24 @@ export function MessagePopups({ popups = [], onDismiss, onClearAll, onReply }) {
   const [previewImage, setPreviewImage] = useState(null);
   const playedRef = useRef(new Set());
 
+  // Exclude survivor beacons and inertiasense notifications from screen popups
+  const activePopups = (popups || []).filter((item) => {
+    if (!item) return false;
+    const combined = `${item.text || ""} ${item.from || ""} ${item.fromName || ""}`.toLowerCase();
+    return !/survivor|inertiasense|pulseseeker|beacon|unconscious|tapping/i.test(combined);
+  });
+
   // Play audio chime for newly arrived popups
   useEffect(() => {
-    popups.forEach((popup) => {
+    activePopups.forEach((popup) => {
       if (!playedRef.current.has(popup.id)) {
         playedRef.current.add(popup.id);
         playNotificationChime(popup.urgency?.level || popup.urgency || "normal", muted);
       }
     });
-  }, [popups, muted]);
+  }, [activePopups, muted]);
 
-  if (!popups || popups.length === 0) return null;
+  if (!activePopups || activePopups.length === 0) return null;
 
   return (
     <div className="msg-popup-container">
@@ -92,7 +99,7 @@ export function MessagePopups({ popups = [], onDismiss, onClearAll, onReply }) {
       <div className="msg-popup-header-controls">
         <div className="msg-popup-count-badge">
           <span className="live-dot pulse"></span>
-          <span>{popups.length} Message{popups.length > 1 ? "s" : ""} Delivered</span>
+          <span>{activePopups.length} Message{activePopups.length > 1 ? "s" : ""} Delivered</span>
         </div>
 
         <div className="msg-popup-right-actions">
@@ -103,9 +110,9 @@ export function MessagePopups({ popups = [], onDismiss, onClearAll, onReply }) {
           >
             {muted ? "🔇 Muted" : "🔔 Sound On"}
           </button>
-          {popups.length > 1 && (
+          {activePopups.length > 1 && (
             <button className="msg-popup-control-btn clear-all" onClick={onClearAll}>
-              Dismiss All ({popups.length})
+              Dismiss All ({activePopups.length})
             </button>
           )}
         </div>
@@ -113,7 +120,7 @@ export function MessagePopups({ popups = [], onDismiss, onClearAll, onReply }) {
 
       {/* Pop-up Stack */}
       <div className="msg-popup-stack">
-        {popups.map((item) => (
+        {activePopups.map((item) => (
           <PopupCard
             key={item.id}
             item={item}

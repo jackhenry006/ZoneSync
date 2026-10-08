@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
-import { EchoLocateEngine } from "../services/echoLocate.js";
+import { EvoSenseEngine } from "../services/evoSense.js";
 
-export function EchoLocatePanel({ socket, selfId, selfName }) {
+export function EvoSensePanel({ socket, selfId, selfName }) {
   const canvasRef = useRef(null);
   const engineRef = useRef(null);
 
@@ -31,25 +31,14 @@ export function EchoLocatePanel({ socket, selfId, selfName }) {
   const [sweepRange, setSweepRange] = useState("17-19");
   const [secondsAgo, setSecondsAgo] = useState(null);
 
-  // 3D Projection Camera State & Live Refs
+  // 3D Projection Camera State & Live Refs (Stable Fixed Orbit View - No Drag / No Pinch)
   const [autoRotate, setAutoRotate] = useState(true);
-  const [zoomScale, setZoomScale] = useState(() => {
-    try {
-      return typeof window !== "undefined" && window.innerWidth < 640 ? 44 : 65;
-    } catch (e) {
-      return 65;
-    }
-  });
 
   const yawRef = useRef(45);
   const pitchRef = useRef(35);
-  const zoomScaleRef = useRef(typeof window !== "undefined" && window.innerWidth < 640 ? 44 : 65);
+  const zoomScaleRef = useRef(typeof window !== "undefined" && window.innerWidth < 640 ? 50 : 65);
   const autoRotateRef = useRef(true);
   const positionsDataRef = useRef(positionsData);
-
-  const isDraggingRef = useRef(false);
-  const lastPointerPosRef = useRef({ x: 0, y: 0 });
-  const lastTouchDistRef = useRef(null);
 
   // Keep refs synced with props / state
   useEffect(() => {
@@ -59,10 +48,6 @@ export function EchoLocatePanel({ socket, selfId, selfName }) {
   useEffect(() => {
     autoRotateRef.current = autoRotate;
   }, [autoRotate]);
-
-  useEffect(() => {
-    zoomScaleRef.current = zoomScale;
-  }, [zoomScale]);
 
   const isLocalIpInsecure =
     typeof window !== "undefined" &&
@@ -74,7 +59,7 @@ export function EchoLocatePanel({ socket, selfId, selfName }) {
   useEffect(() => {
     if (!socket || !selfId) return;
 
-    const engine = new EchoLocateEngine(socket, selfId, selfName || "Device", {
+    const engine = new EvoSenseEngine(socket, selfId, selfName || "Device", {
       onStatusChange: (st) => setEngineStatus((prev) => ({ ...prev, ...st })),
       onRoundState: (rst) => setRoundState((prev) => ({ ...prev, ...rst })),
       onPositions: (pos) => setPositionsData(pos),
@@ -98,75 +83,6 @@ export function EchoLocatePanel({ socket, selfId, selfName }) {
     const interval = setInterval(updateTimer, 1000);
     return () => clearInterval(interval);
   }, [positionsData.timestamp]);
-
-  // Touch and Pointer Event Handlers for 3D Orbit & Zoom (Buttery smooth 60fps)
-  const handlePointerDown = (e) => {
-    isDraggingRef.current = true;
-    lastPointerPosRef.current = { x: e.clientX, y: e.clientY };
-    autoRotateRef.current = false;
-    setAutoRotate(false);
-  };
-
-  const handlePointerMove = (e) => {
-    if (!isDraggingRef.current) return;
-    const dx = e.clientX - lastPointerPosRef.current.x;
-    const dy = e.clientY - lastPointerPosRef.current.y;
-    lastPointerPosRef.current = { x: e.clientX, y: e.clientY };
-
-    yawRef.current = (yawRef.current + dx * 0.45 + 360) % 360;
-    pitchRef.current = Math.max(5, Math.min(85, pitchRef.current - dy * 0.35));
-  };
-
-  const handlePointerUp = () => {
-    isDraggingRef.current = false;
-  };
-
-  const handleTouchStart = (e) => {
-    if (e.touches.length === 1) {
-      isDraggingRef.current = true;
-      lastPointerPosRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
-      autoRotateRef.current = false;
-      setAutoRotate(false);
-    } else if (e.touches.length === 2) {
-      const dist = Math.hypot(
-        e.touches[0].clientX - e.touches[1].clientX,
-        e.touches[0].clientY - e.touches[1].clientY
-      );
-      lastTouchDistRef.current = dist;
-    }
-  };
-
-  const handleTouchMove = (e) => {
-    if (e.touches.length === 1 && isDraggingRef.current) {
-      const dx = e.touches[0].clientX - lastPointerPosRef.current.x;
-      const dy = e.touches[0].clientY - lastPointerPosRef.current.y;
-      lastPointerPosRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
-
-      yawRef.current = (yawRef.current + dx * 0.5 + 360) % 360;
-      pitchRef.current = Math.max(5, Math.min(85, pitchRef.current - dy * 0.4));
-    } else if (e.touches.length === 2 && lastTouchDistRef.current !== null) {
-      const dist = Math.hypot(
-        e.touches[0].clientX - e.touches[1].clientX,
-        e.touches[0].clientY - e.touches[1].clientY
-      );
-      const diff = dist - lastTouchDistRef.current;
-      lastTouchDistRef.current = dist;
-      const nextZoom = Math.max(25, Math.min(130, zoomScaleRef.current + diff * 0.3));
-      zoomScaleRef.current = nextZoom;
-      setZoomScale(Math.round(nextZoom));
-    }
-  };
-
-  const handleTouchEnd = () => {
-    isDraggingRef.current = false;
-    lastTouchDistRef.current = null;
-  };
-
-  const handleWheel = (e) => {
-    const nextZoom = Math.max(25, Math.min(130, zoomScaleRef.current - Math.sign(e.deltaY) * 6));
-    zoomScaleRef.current = nextZoom;
-    setZoomScale(Math.round(nextZoom));
-  };
 
   // 3D Spatial Canvas Renderer (Single stable animation frame loop)
   useEffect(() => {
@@ -473,6 +389,7 @@ export function EchoLocatePanel({ socket, selfId, selfName }) {
 
   function handleTriggerRound() {
     if (engineRef.current) {
+      engineRef.current.initAudio().catch(() => {});
       engineRef.current.triggerRound();
     }
   }
@@ -578,7 +495,11 @@ export function EchoLocatePanel({ socket, selfId, selfName }) {
             ↻ Run 3D Round
           </button>
 
-          <button className="secondary-btn" style={{ borderColor: "var(--accent-primary)", color: "var(--accent-primary)", fontWeight: 700 }} onClick={handleSimDemo3D => handleSimulateDemo3D()}>
+          <button
+            className="secondary-btn"
+            style={{ borderColor: "var(--accent-primary)", color: "var(--accent-primary)", fontWeight: 700 }}
+            onClick={handleSimulateDemo3D}
+          >
             ⚡ Simulate 3D Multi-Floor Plot
           </button>
         </div>
@@ -605,63 +526,9 @@ export function EchoLocatePanel({ socket, selfId, selfName }) {
 
       {/* 3D Radar Canvas Container */}
       <div className="canvas-wrapper">
-        {/* Floating Top-Left HUD Zoom & Camera Control Widget */}
-        <div className="canvas-hud-controls top-left">
-          <div className="hud-group">
-            <span className="hud-title">🔍 3D CAMERA ZOOM</span>
-            <div className="hud-zoom-buttons">
-              <button
-                className="hud-btn"
-                title="Zoom In (+)"
-                onClick={() => {
-                  const next = Math.min(130, zoomScaleRef.current + 10);
-                  zoomScaleRef.current = next;
-                  setZoomScale(next);
-                }}
-              >
-                +
-              </button>
-              <span className="hud-val">{zoomScale} <small>px/m</small></span>
-              <button
-                className="hud-btn"
-                title="Zoom Out (-)"
-                onClick={() => {
-                  const next = Math.max(25, zoomScaleRef.current - 10);
-                  zoomScaleRef.current = next;
-                  setZoomScale(next);
-                }}
-              >
-                −
-              </button>
-              <button
-                className="hud-btn reset"
-                title="Reset 3D Camera View"
-                onClick={() => {
-                  const defaultZoom = typeof window !== "undefined" && window.innerWidth < 640 ? 44 : 65;
-                  zoomScaleRef.current = defaultZoom;
-                  yawRef.current = 45;
-                  pitchRef.current = 35;
-                  setZoomScale(defaultZoom);
-                }}
-              >
-                ↺ Reset View
-              </button>
-            </div>
-          </div>
-        </div>
-
         <canvas
           ref={canvasRef}
           className="radar-canvas"
-          onPointerDown={handlePointerDown}
-          onPointerMove={handlePointerMove}
-          onPointerUp={handlePointerUp}
-          onPointerLeave={handlePointerUp}
-          onTouchStart={handleTouchStart}
-          onTouchMove={handleTouchMove}
-          onTouchEnd={handleTouchEnd}
-          onWheel={handleWheel}
-          style={{ touchAction: "none", cursor: isDraggingRef.current ? "grabbing" : "grab" }}
         />
       </div>
 
@@ -673,7 +540,13 @@ export function EchoLocatePanel({ socket, selfId, selfName }) {
         >
           {autoRotate ? "⏸ 3D Orbiting (Pause)" : "▶ Start 3D Orbit"}
         </button>
+        <span className="canvas-bottom-hint">
+          Stable 3D Spatial View ({autoRotate ? "Auto-Rotating 35° tilt" : "Paused Fixed Angle"})
+        </span>
       </div>
     </div>
   );
 }
+
+export { EvoSensePanel as EchoLocatePanel };
+

@@ -10,9 +10,8 @@
     "start": "node signaling-server.js",
     "start:signaling": "node signaling-server.js",
     "start:cloud": "node cloud-server.js",
-    "start:echolocate": "node echolocate-server.js",
-    "start:lifeboat": "node api-server.js",
-    "test:lifeboat": "node test-lifeboat.js"
+    "start:evosense": "node evosense-server.js",
+    "start:echolocate": "node evosense-server.js"
   },
   "keywords": [],
   "author": "",

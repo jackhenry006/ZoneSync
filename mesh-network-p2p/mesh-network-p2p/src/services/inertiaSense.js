@@ -1,16 +1,17 @@
-// ===== PulseSeeker — AI-Powered Passive Victim Detection Engine =====
+// ===== InertiaSense — AI-Powered Passive Victim Detection Engine =====
 // Detects trapped or unconscious disaster victims without any active user interaction
 // using Web Audio API (rhythmic tapping analysis) and DeviceMotion API (inertia tracking).
 
-export class PulseSeeker {
+export class InertiaSense {
   constructor(options = {}) {
     this.options = {
       modelUrl: '/api/pulse-seeker/model',
       detectionThreshold: 0.80,
-      inertiaTimeoutMs: 5 * 60 * 1000, // 5 minutes default (can be set to 15s in demo mode)
-      checkIntervalMs: 1000, // check every 1 second
+      inertiaTimeoutMs: 15000, // 15 seconds for responsive testing (5 mins in ultra-long production)
+      checkIntervalMs: 800, // check every 800ms
       autoBeacon: true,
       meshNode: null, // optional reference to MeshNode instance
+      socket: null, // optional socket.io client
       ...options
     };
 
@@ -22,6 +23,8 @@ export class PulseSeeker {
     this.isRunning = false;
     this.lastMotionTime = Date.now();
     this.stillnessDurationSec = 0;
+    this.lastSoundTime = 0; // Timestamp of last detected acoustic event/sound
+    this.currentSoundLevel = 0; // Real-time sound amplitude (0.0 to 1.0)
 
     this.motionHistory = [];
     this.audioBufferQueue = [];
@@ -29,6 +32,9 @@ export class PulseSeeker {
     this.beaconSent = false;
     this.confidenceHistory = [];
     this.recentBeacons = [];
+
+    this.simulationOverride = null; // temporary override for live visual response during demo
+    this.simTimeout = null;
 
     this.callbacks = {
       onDetection: null,
@@ -51,38 +57,48 @@ export class PulseSeeker {
   async init(callbacks = {}) {
     this.callbacks = { ...this.callbacks, ...callbacks };
 
+    let micOk = false;
     try {
-      // 1. Request Microphone Access
-      const micOk = await this.requestMicrophone();
+      // 1. Attempt Microphone Access (may require user gesture in some browsers)
+      micOk = await this.requestMicrophone();
+    } catch (e) {
+      console.warn("[InertiaSense] Microphone access deferred or not allowed:", e.message);
+    }
 
+    try {
       // 2. Start Motion Sensor Monitoring
       this.startMotionMonitoring();
 
       // 3. Start Main AI Inference Loop
       this.startDetectionLoop();
 
-      this.notifyStatus({ status: "active", micOk, motionOk: true });
+      this.notifyStatus({ active: true, status: "active", micOk, motionOk: true });
       return true;
     } catch (err) {
-      const msg = `PulseSeeker init error: ${err.message}`;
+      const msg = `InertiaSense init error: ${err.message}`;
       this.handleError(msg);
-      this.notifyStatus({ status: "error", errorMsg: msg });
+      this.notifyStatus({ active: false, status: "error", errorMsg: msg });
       return false;
     }
   }
 
   // Request microphone stream using Web Audio API
   async requestMicrophone() {
-    if (this.micStream) return true;
+    if (this.micStream && this.audioCtx) {
+      if (this.audioCtx.state === "suspended") {
+        await this.audioCtx.resume();
+      }
+      return true;
+    }
 
     try {
       if (typeof window !== "undefined" && window.isSecureContext === false && window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1") {
-        console.warn("[PulseSeeker] Microphone access requires HTTPS or localhost (Secure Context). Operating in acoustic simulation mode.");
+        console.warn("[InertiaSense] Microphone access requires HTTPS or localhost. Operating in inertial & simulated acoustic mode.");
         return false;
       }
 
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        console.warn("[PulseSeeker] getUserMedia API not available. Operating in acoustic simulation mode.");
+        console.warn("[InertiaSense] getUserMedia API not available.");
         return false;
       }
 
@@ -109,7 +125,7 @@ export class PulseSeeker {
 
       source.connect(this.analyser);
 
-      // Audio Worklet / ScriptProcessor for audio sample buffers
+      // Audio Worklet / ScriptProcessor for sample collection
       this.scriptNode = this.audioCtx.createScriptProcessor(2048, 1, 1);
       const silentGain = this.audioCtx.createGain();
       silentGain.gain.value = 0;
@@ -127,9 +143,10 @@ export class PulseSeeker {
       this.scriptNode.connect(silentGain);
       silentGain.connect(this.audioCtx.destination);
 
+      this.notifyStatus({ micOk: true });
       return true;
     } catch (err) {
-      console.warn("[PulseSeeker] Microphone request fallback:", err.message);
+      console.warn("[InertiaSense] Microphone request fallback:", err.message);
       return false;
     }
   }
@@ -150,7 +167,7 @@ export class PulseSeeker {
       this.motionHistory.push({ x, y, z, mag, ts: Date.now() });
       if (this.motionHistory.length > 50) this.motionHistory.shift();
 
-      // Motion threshold: if magnitude changes significantly from 9.8m/s^2 gravity
+      // Motion threshold: if magnitude changes significantly from gravity (9.81 m/s^2)
       const delta = Math.abs(mag - 9.81);
       if (delta > 0.45) {
         this.lastMotionTime = Date.now();
@@ -172,8 +189,9 @@ export class PulseSeeker {
     }
   }
 
-  // Main Detection Loop: runs every 1 sec
+  // Main Detection Loop
   startDetectionLoop() {
+    if (this.detectionInterval) clearInterval(this.detectionInterval);
     this.isRunning = true;
 
     this.detectionInterval = setInterval(async () => {
@@ -184,19 +202,32 @@ export class PulseSeeker {
       this.stillnessDurationSec = Math.floor(idleTimeMs / 1000);
 
       // 2. Extract 25-dimensional feature vector
-      const features = this.extractFeatures();
+      let features = this.extractFeatures();
 
       // 3. Run TinyML Neural Inference
-      const prediction = this.runInference(features);
+      let prediction = this.runInference(features);
 
-      // 4. Process prediction results & triggers
-      this.processPrediction(prediction, features);
+      // Check if simulation override is active for demo response
+      if (this.simulationOverride) {
+        prediction = { ...prediction, ...this.simulationOverride.prediction };
+        features = [...this.simulationOverride.features];
+        if (typeof this.simulationOverride.stillnessSec === "number") {
+          this.stillnessDurationSec = this.simulationOverride.stillnessSec;
+        }
+      }
+
+      // 4. Process prediction results & triggers (when not overridden by test simulation)
+      if (!this.simulationOverride) {
+        this.processPrediction(prediction, features);
+      }
 
       // 5. Send real-time telemetry callback for dashboard UI
       if (this.callbacks.onTelemetry) {
         this.callbacks.onTelemetry({
           timestamp: Date.now(),
           stillnessSec: this.stillnessDurationSec,
+          soundLevel: Math.round(this.currentSoundLevel * 100),
+          hasAcousticTrigger: (Date.now() - this.lastSoundTime) < 45000,
           prediction,
           features,
           environment: this.classifyEnvironment(features)
@@ -215,14 +246,33 @@ export class PulseSeeker {
       this.analyser.getByteFrequencyData(freqData);
     }
 
-    // 13 MFCC / Band Energies
-    const bandSize = Math.floor(freqData.length / 13);
+    // 13 MFCC / Band Energies & audio level
+    let totalFreqEnergy = 0;
+    const bandSize = Math.max(1, Math.floor(freqData.length / 13));
     for (let b = 0; b < 13; b++) {
       let sum = 0;
       for (let k = 0; k < bandSize; k++) {
-        sum += freqData[b * bandSize + k] || 0;
+        const val = freqData[b * bandSize + k] || 0;
+        sum += val;
+        totalFreqEnergy += val;
       }
       features.push((sum / bandSize) / 255.0);
+    }
+
+    // Measure live audio energy / sound activity
+    const avgFreqLevel = freqData.length > 0 ? (totalFreqEnergy / freqData.length) / 255.0 : 0;
+    let rms = 0;
+    if (this.audioBufferQueue.length > 0) {
+      const buf = this.audioBufferQueue[this.audioBufferQueue.length - 1];
+      let sumSq = 0;
+      for (let i = 0; i < buf.length; i++) sumSq += buf[i] * buf[i];
+      rms = Math.sqrt(sumSq / buf.length);
+    }
+    this.currentSoundLevel = Math.max(avgFreqLevel, rms);
+
+    // If acoustic sound / vibration exceeds baseline threshold, mark sound event
+    if (this.currentSoundLevel > 0.08 || rms > 0.035) {
+      this.lastSoundTime = Date.now();
     }
 
     // Zero Crossing Rate (ZCR)
@@ -247,11 +297,11 @@ export class PulseSeeker {
     const centroid = den > 0 ? (num / den) / freqData.length : 0;
     features.push(centroid);
 
-    // Rhythm Features (5 dimensions: Tapping Cadence 2-4Hz, Impulse Peak Energy, Variance, Damping, AutoCorr)
+    // Rhythm Features (5 dimensions)
     const rhythm = this.computeRhythmFeatures();
     features.push(...rhythm);
 
-    // Motion Features (5 dimensions: Accel Magnitude, Variance, Idle Ratio, Tilt Z, Stillness Score)
+    // Motion Features (5 dimensions)
     const motion = this.computeMotionFeatures();
     features.push(...motion);
 
@@ -260,7 +310,7 @@ export class PulseSeeker {
 
   // Compute Rhythm Tapping cadence features
   computeRhythmFeatures() {
-    if (this.audioBufferQueue.length === 0) return [0, 0, 0, 0, 0];
+    if (this.audioBufferQueue.length === 0) return [0.05, 0.05, 0.02, 0.05, 0.05];
 
     // Energy envelope across recent buffers
     const energies = this.audioBufferQueue.map(buf => {
@@ -296,15 +346,15 @@ export class PulseSeeker {
   // Compute Motion & Inertia Features
   computeMotionFeatures() {
     if (this.motionHistory.length === 0) {
-      const stillnessScore = Math.min(1.0, this.stillnessDurationSec / 300); // 5 mins
-      return [0, 0, 0, 0, stillnessScore];
+      const stillnessScore = Math.min(1.0, this.stillnessDurationSec / 15); // 15s responsive threshold
+      return [0.05, 0.01, 0.98, 1.0, stillnessScore];
     }
 
     const mags = this.motionHistory.map(m => m.mag);
     const avgMag = mags.reduce((a, b) => a + b, 0) / mags.length;
     const varMag = mags.reduce((a, b) => a + Math.pow(b - avgMag, 2), 0) / mags.length;
 
-    const stillnessScore = Math.min(1.0, this.stillnessDurationSec / 300);
+    const stillnessScore = Math.min(1.0, this.stillnessDurationSec / 15);
     const lastM = this.motionHistory[this.motionHistory.length - 1];
 
     return [
@@ -342,15 +392,19 @@ export class PulseSeeker {
     const rhythmCadence = features[15] || 0;
     const rhythmImpulse = features[16] || 0;
     const stillnessScore = features[24] || 0;
+    const hasAcousticTrigger = (Date.now() - this.lastSoundTime) < 45000;
 
     // Tapping class boost if rhythmic impulse pattern detected
     if (rhythmCadence > 0.7 && rhythmImpulse > 0.3) {
       rawOut[0] += 2.5;
     }
 
-    // Inertia / Unconscious class boost if stationary > threshold
-    if (stillnessScore > 0.8 || this.stillnessDurationSec > (this.options.inertiaTimeoutMs / 1000)) {
+    // Inertia / Unconscious class boost ONLY if acoustic sound was heard AND device is motionless
+    if (hasAcousticTrigger && (stillnessScore > 0.8 || this.stillnessDurationSec > (this.options.inertiaTimeoutMs / 1000))) {
       rawOut[1] += 3.0;
+    } else if (!hasAcousticTrigger) {
+      // Normal state when stationary without distress/sound trigger (idle device resting on desk)
+      rawOut[2] += 2.5;
     }
 
     // Softmax
@@ -371,14 +425,16 @@ export class PulseSeeker {
   // Process Prediction and Trigger Auto-Beacon if threshold exceeded
   processPrediction(prediction, features) {
     const { tapping, inertia } = prediction;
+    const hasAcousticTrigger = (Date.now() - this.lastSoundTime) < 45000;
 
     // Check Tapping Pattern (> 80% confidence)
     if (tapping >= this.options.detectionThreshold) {
       this.triggerDetection("tapping", tapping, features);
     }
 
-    // Check Inertia / Unconsciousness (> 80% confidence or >5 minutes stillness)
-    if (inertia >= 0.80 || this.stillnessDurationSec >= (this.options.inertiaTimeoutMs / 1000)) {
+    // Check Inertia / Unconsciousness (> 80% confidence AND sound was heard)
+    // Avoids automatically triggering on silent resting phones
+    if (hasAcousticTrigger && (inertia >= 0.80 || this.stillnessDurationSec >= (this.options.inertiaTimeoutMs / 1000))) {
       this.triggerDetection("unconscious", Math.max(inertia, 0.92), features);
     }
 
@@ -388,11 +444,11 @@ export class PulseSeeker {
   }
 
   // Trigger Victim Detection & Auto-Send Beacon
-  async triggerDetection(type, confidence, features) {
-    if (this.beaconSent) return;
+  async triggerDetection(type, confidence, features, isManual = false) {
+    if (!isManual && this.beaconSent) return;
 
     const detection = {
-      id: `ps-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      id: `beacon-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
       type, // 'tapping' | 'unconscious' | 'seismic'
       confidence: Math.round(confidence * 100),
       timestamp: Date.now(),
@@ -406,7 +462,7 @@ export class PulseSeeker {
     };
 
     this.recentBeacons.unshift(detection);
-    if (this.recentBeacons.length > 20) this.recentBeacons.length = 20;
+    if (this.recentBeacons.length > 30) this.recentBeacons.length = 30;
 
     if (this.callbacks.onDetection) {
       this.callbacks.onDetection(detection);
@@ -415,31 +471,30 @@ export class PulseSeeker {
     // Auto-send emergency beacon through mesh network & REST API
     await this.sendAutoBeacon(detection);
 
-    // Cooldown flag to prevent beacon flooding (45s cooldown)
+    // Cooldown flag to prevent beacon flooding (15s cooldown)
     this.beaconSent = true;
     setTimeout(() => {
       this.beaconSent = false;
-    }, 45000);
+    }, 15000);
   }
 
   // Send Auto-Beacon over Mesh Network & REST API
   async sendAutoBeacon(detection) {
-    const textMsg = `🆘 PULSESEEKER SURVIVOR ALERT: ${detection.type.toUpperCase()} detected (${detection.confidence}% confidence) in ${detection.environment} environment!`;
+    const textMsg = `🆘 INERTIASENSE SURVIVOR ALERT: ${detection.type.toUpperCase()} detected (${detection.confidence}% confidence) in ${detection.environment} environment!`;
 
     // 1. Broadcast via P2P Mesh Network if connected
     if (this.options.meshNode) {
       try {
         await this.options.meshNode.broadcastLocationToAll(textMsg, detection.location);
       } catch (e) {
-        console.warn("[PulseSeeker] Mesh broadcast fallback:", e.message);
+        console.warn("[InertiaSense] Mesh broadcast fallback:", e.message);
       }
     }
 
-    // 2. Post to REST Endpoint /api/auto-beacon & Lifeboat Heartbeat /api/heartbeat
+    // 2. Post to REST Endpoint /api/auto-beacon
     try {
       const baseUrl = (import.meta.env.VITE_BACKEND_URL || "").replace(/\/$/, "");
       const beaconUrl = baseUrl ? `${baseUrl}/api/auto-beacon` : "/api/auto-beacon";
-      const heartbeatUrl = baseUrl ? `${baseUrl}/api/heartbeat` : "/api/heartbeat";
 
       const res = await fetch(beaconUrl, {
         method: "POST",
@@ -447,32 +502,10 @@ export class PulseSeeker {
         body: JSON.stringify(detection)
       });
       if (res.ok) {
-        console.log(`[PulseSeeker] ✅ Auto-Beacon delivered: ${detection.type} (${detection.confidence}%)`);
+        console.log(`[InertiaSense] ✅ Auto-Beacon delivered: ${detection.type} (${detection.confidence}%)`);
       }
-
-      // Also ingest into Lifeboat Lethality Calculator & Priority Queue
-      fetch(heartbeatUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          deviceId: detection.id,
-          sensors: {
-            accelerometer: {
-              readings: [
-                { x: 0.1, y: 0.2, z: 9.8, timestamp: Date.now() - ((detection.deviceInfo && detection.deviceInfo.stillnessSec) || 300) * 1000 },
-                { x: 0.1, y: 0.2, z: 9.8, timestamp: Date.now() }
-              ]
-            },
-            ambientLight: 2,
-            battery: 15
-          },
-          location: detection.location,
-          message: { text: textMsg, timestamp: Date.now() }
-        })
-      }).catch(() => {});
     } catch (e) {
-      console.warn("[PulseSeeker] REST beacon queued for retry:", e.message);
-      // Auto-retry sending after 6 seconds
+      console.warn("[InertiaSense] REST beacon queued for retry:", e.message);
       setTimeout(() => this.sendAutoBeacon(detection), 6000);
     }
   }
@@ -482,7 +515,7 @@ export class PulseSeeker {
     if (navigator.geolocation) {
       try {
         const pos = await new Promise((resolve, reject) =>
-          navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 3000, maximumAge: 10000 })
+          navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 2500, maximumAge: 10000 })
         );
         return {
           lat: Math.round(pos.coords.latitude * 100000) / 100000,
@@ -491,42 +524,72 @@ export class PulseSeeker {
         };
       } catch (e) {}
     }
-    return { lat: 37.7749, lng: -122.4194, accuracy: 12, isSimulated: true };
+    return { lat: 37.7749, lng: -122.4194, accuracy: 8, isSimulated: true };
   }
 
   // Classify environmental conditions
   classifyEnvironment(features) {
-    const zcr = features[13] || 0;
-    const centroid = features[14] || 0;
+    const zcr = (features && features[13]) || 0;
+    const centroid = (features && features[14]) || 0;
     const stillnessSec = this.stillnessDurationSec;
 
-    if (stillnessSec > 180 && zcr < 0.1) {
+    if (stillnessSec > 60 && zcr < 0.1) {
       return "basement";
     }
     if (centroid > 0.6 && zcr > 0.3) {
       return "rooftop";
     }
-    if (features[15] > 0.5) { // high impulse tapping energy
+    if (features && features[15] > 0.5) { // high impulse tapping energy
       return "collapsed-structure";
     }
-    return "debris-area";
+    return "debris-rubble";
   }
 
   // Manual Trigger Simulation for testing
   simulateTapping() {
-    const simulatedFeatures = new Array(25).fill(0.1);
-    simulatedFeatures[15] = 0.95; // high cadence
-    simulatedFeatures[16] = 0.85; // impulse ratio
+    this.lastSoundTime = Date.now();
+    const simulatedFeatures = new Array(25).fill(0.12);
+    // Spike tapping cadence & high frequency spectrum bars
+    simulatedFeatures[0] = 0.85;
+    simulatedFeatures[1] = 0.92;
+    simulatedFeatures[2] = 0.78;
+    simulatedFeatures[5] = 0.65;
+    simulatedFeatures[10] = 0.88;
+    simulatedFeatures[15] = 0.96; // high cadence (3.2 Hz)
+    simulatedFeatures[16] = 0.90; // high impulse ratio
 
-    this.triggerDetection("tapping", 0.94, simulatedFeatures);
+    // Trigger visual simulation override for 5 seconds
+    this.simulationOverride = {
+      prediction: { tapping: 0.94, inertia: 0.04, normal: 0.02, noise: 0.0, topClass: "tapping" },
+      features: simulatedFeatures
+    };
+    if (this.simTimeout) clearTimeout(this.simTimeout);
+    this.simTimeout = setTimeout(() => {
+      this.simulationOverride = null;
+    }, 5000);
+
+    this.triggerDetection("tapping", 0.94, simulatedFeatures, true);
   }
 
   simulateInertia() {
+    this.lastSoundTime = Date.now();
     this.stillnessDurationSec = 310; // > 5 minutes
     const simulatedFeatures = new Array(25).fill(0.02);
+    simulatedFeatures[0] = 0.45; // recent acoustic trigger trace
     simulatedFeatures[24] = 1.0; // max stillness score
 
-    this.triggerDetection("unconscious", 0.96, simulatedFeatures);
+    // Trigger visual simulation override for 5 seconds
+    this.simulationOverride = {
+      prediction: { tapping: 0.02, inertia: 0.96, normal: 0.02, noise: 0.0, topClass: "inertia" },
+      features: simulatedFeatures,
+      stillnessSec: 310
+    };
+    if (this.simTimeout) clearTimeout(this.simTimeout);
+    this.simTimeout = setTimeout(() => {
+      this.simulationOverride = null;
+    }, 5000);
+
+    this.triggerDetection("unconscious", 0.96, simulatedFeatures, true);
   }
 
   handleError(msg) {
@@ -540,6 +603,7 @@ export class PulseSeeker {
   stop() {
     this.isRunning = false;
     if (this.detectionInterval) clearInterval(this.detectionInterval);
+    if (this.simTimeout) clearTimeout(this.simTimeout);
     if (this.scriptNode) this.scriptNode.disconnect();
     if (this.micStream) {
       this.micStream.getTracks().forEach(t => t.stop());
@@ -547,3 +611,5 @@ export class PulseSeeker {
     }
   }
 }
+
+export { InertiaSense as PulseSeeker };

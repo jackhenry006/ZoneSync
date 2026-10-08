@@ -1,5 +1,5 @@
-# 🌐 MeshGrid P2P & Disaster Rescue Suite (v3.0)
-> **Serverless-Resilient P2P Mesh Network with On-Device AI, End-to-End Encryption, Acoustic Indoor Positioning (EchoLocate), Passive Victim Detection (PulseSeeker), and Lifeboat Priority Routing.**
+# 🌐 ZoneSync P2P & Disaster Operations Suite (v3.0)
+> **Serverless-Resilient P2P Mesh Network with On-Device AI, End-to-End Encryption, Acoustic Indoor Positioning (EvoSense), and Passive Victim Detection (InertiaSense).**
 
 ---
 
@@ -21,14 +21,13 @@ In disasters such as earthquakes, building collapses, floods, and severe grid fa
 1. **Infrastructure Blackout**: Cell towers lose power, fiber backbones sever, and internet access disappears.
 2. **Victim Silence**: Trapped, pinned, or unconscious victims cannot press SOS buttons, unlock phones, or speak.
 
-### What MeshGrid Does
-MeshGrid transforms standard smartphones, tablets, and laptops into a **self-healing, zero-install, decentralized rescue mesh**.
+### What ZoneSync Does
+ZoneSync transforms standard smartphones, tablets, and laptops into a **self-healing, zero-install, decentralized rescue mesh**.
 - Devices discover each other locally and form **serverless WebRTC data channels**.
 - Messages, voice notes, photos, and GPS coordinates route **hop-by-hop** across devices without requiring internet or cellular service.
 - If the signaling server dies after initial handshake, the **P2P mesh continues operating independently**.
-- When victims cannot move, **PulseSeeker** passively monitors ambient audio (rhythmic debris tapping) and motion sensors (unconscious stillness) to auto-dispatch emergency survivor beacons.
-- When GPS is blocked by concrete rubble, **EchoLocate** calculates indoor 2D positions using ultrasonic acoustic chirps and multilateration.
-- The **Lifeboat Engine** scores multi-sensor lethality (0–100) and routes critical cases to the front of rescue queues.
+- When victims cannot move, **InertiaSense** passively monitors ambient audio (rhythmic debris tapping) and motion sensors (unconscious stillness) to auto-dispatch emergency survivor beacons.
+- When GPS is blocked by concrete rubble, **EvoSense** calculates indoor 2D positions using ultrasonic acoustic chirps and multilateration.
 
 ---
 
@@ -36,15 +35,14 @@ MeshGrid transforms standard smartphones, tablets, and laptops into a **self-hea
 
 | Feature | Description |
 |---|---|
-| 📡 **Serverless P2P Mesh Routing** | Multi-hop encrypted routing using local Dijkstra shortest-path algorithms and gossip topology adverts over WebRTC data channels. |
+| 📡 **ConnectX (Serverless P2P Mesh Routing)** | Multi-hop encrypted routing using local Dijkstra shortest-path algorithms and gossip topology adverts over WebRTC data channels. |
 | 🔒 **End-to-End Encryption (E2EE)** | On-device ECDH (P-256) key exchange + AES-256-GCM payload encryption + ECDSA (P-256) digital signatures. Relays carry only opaque ciphertext. |
 | 🤖 **On-Device AI Urgency Classifier** | In-browser NLP urgency classification that tags messages as `CRITICAL`, `ELEVATED`, or `NORMAL` without sending data to the cloud. |
 | 🎤 **Encrypted Voice Notes** | Mobile & desktop audio micro-recording (Opus/AAC/MP4) with automatic transmission upon completion and inline playback. |
 | 🖼️ **Encrypted Image Notes** | Canvas-based image compression (`maxDim = 800px`, JPEG quality 0.6) with automatic chunking, chunk progress tracking, and fallback. |
 | 📍 **GPS Location Broadcast** | Broadcasts live device coordinates with Google Maps links across the entire mesh with one click. |
-| 🔊 **EchoLocate (Acoustic 2D Radar)** | Plots relative indoor (x, y) coordinates without GPS or WiFi using 17–19 kHz ultrasonic LFM chirps and 2D least-squares multilateration. |
-| 🛡️ **PulseSeeker (Passive Victim Detection)** | 100% offline TinyML that listens for rhythmic pipe tapping (2–4 Hz) and detects prolonged unconscious stillness (>5 min), auto-dispatching SOS beacons. |
-| ⚖️ **Lifeboat Priority Routing** | Multi-sensor lethality calculator and 4-tier priority queue (`critical`, `elevated`, `normal`, `low`) for first responders. |
+| 🔊 **EvoSense (Acoustic 2D Radar)** | Plots relative indoor (x, y) coordinates without GPS or WiFi using 17–19 kHz ultrasonic LFM chirps and 2D least-squares multilateration. |
+| 🛡️ **InertiaSense (Passive Victim Detection)** | 100% offline TinyML that listens for rhythmic pipe tapping (2–4 Hz) and detects prolonged unconscious stillness (>5 min), auto-dispatching SOS beacons. |
 | ☁️ **Opportunistic Cloud Sync** | Opt-in telemetry sync and real-time remote AI keyword model distribution when internet is intermittently available. |
 
 ---
@@ -81,7 +79,7 @@ MeshGrid transforms standard smartphones, tablets, and laptops into a **self-hea
 - **HTML5 FileReader & Canvas Compression**: In-browser image downsampling to optimize packet sizes for mesh transmission.
 
 ### Backend Services
-- **Node.js & Express 5**: Lightweight, modular backend micro-servers for signaling, cloud telemetry sync, acoustic localization, and lifeboat scoring.
+- **Node.js & Express 5**: Lightweight, modular backend micro-servers for signaling, cloud telemetry sync, and acoustic localization.
 
 ---
 
@@ -150,23 +148,12 @@ MeshGrid transforms standard smartphones, tablets, and laptops into a **self-hea
 4. The Pinger calculates pairwise distances: $d = \frac{\Delta T_{\text{RTT}} - \text{offset}}{2} \times 343\text{ m/s}$.
 5. A 2D least-squares multilateration algorithm converts distances into relative $(x, y)$ coordinates and plots them on the radar canvas.
 
-### 5. PulseSeeker Passive Survivor Detection
+### 5. InertiaSense Passive Survivor Detection
 1. Runs background feature extraction: 13 MFCC sub-bands, Zero-Crossing Rate (ZCR), Spectral Centroids, and accelerometer variance.
 2. A 2-layer in-browser neural matrix evaluates signals against:
    - **Rhythmic Pipe/Wall Tapping**: 2–4 Hz peak periodicity with high high-frequency harmonics.
    - **Inertial Unconsciousness**: Accelerometer variance $< 0.02\text{ m/s}^2$ for $> 5\text{ minutes}$.
-3. When detection confidence exceeds 80%, PulseSeeker automatically constructs an SOS beacon and broadcasts it across the mesh.
-
-### 6. Lifeboat Lethality Scoring & Rescuer Queue
-1. Ingests multi-sensor telemetry at `POST /api/heartbeat`.
-2. Computes lethality score (0–100):
-   - Sudden Barometer Drop ($>5\text{ hPa/min}$): **+50 pts**
-   - Ambient Darkness ($<5\text{ lux}$): **+30 pts**
-   - Injury Keywords (*bleeding, trapped, crushed*): **+25 pts**
-   - Flood Keywords (*water rising, drowning*): **+20 pts**
-   - Vulnerable Person (*infant, pregnant, elderly*): **+15 pts**
-   - Water Proximity / Low Battery: **+10–15 pts**
-3. Enqueues critical survivors ($\ge 80\text{ pts}$) at the top of the priority queue for instant rescuer deployment.
+3. When detection confidence exceeds 80%, InertiaSense automatically constructs an SOS beacon and broadcasts it across the mesh.
 
 ---
 
@@ -188,19 +175,13 @@ npm run start:signaling
 # 2. Start Cloud Sync & Remote Ops Server (Port 4002)
 npm run start:cloud
 
-# 3. Start Standalone EchoLocate Server (Port 4003)
-npm run start:echolocate
+# 3. Start Standalone EvoSense Server (Port 4003)
+npm run start:evosense
 
-# 4. Start Lifeboat Priority Queue Server (Port 4004)
-npm run start:lifeboat
-
-# 5. Run Automated Lifeboat & Queue Stress Test Suite
-npm run test:lifeboat
-
-# 6. Launch Frontend Dev Server (Port 3000 / HTTPS Network Access)
+# 4. Launch Frontend Dev Server (Port 3000 / HTTPS Network Access)
 npm run dev -- --host
 
-# 7. Production Build
+# 5. Production Build
 npm run build
 ```
 
@@ -218,15 +199,12 @@ npm run build
    - Click **`🎤 Voice Note`**, record audio, and click **`⏹ Stop & Send`**. Show instant delivery and playback on the other peer.
    - Click **`🖼️ Image Note`**, pick a photo, and watch chunk progress stream and render.
 
-3. **EchoLocate Indoor Positioning**:
-   - Open `/echolocate`, click **`⚡ Simulate Demo Plot`**, and view the 2D acoustic radar map with relative distance vectors.
+3. **EvoSense Indoor Positioning**:
+   - Open `/echolocate` (or `/evosense`), click **`⚡ Simulate Demo Plot`**, and view the 2D acoustic radar map with relative distance vectors.
 
-4. **PulseSeeker Passive Victim Detection**:
-   - Open `/pulseseeker`, click **`🛡️ Activate Passive Detection Sensors`**, then click **`🔨 Simulate Tapping (3.2 Hz)`**.
+4. **InertiaSense Passive Victim Detection**:
+   - Open `/pulseseeker` (or `/inertiasense`), click **`🛡️ Activate Passive Detection Sensors`**, then click **`🔨 Simulate Tapping (3.2 Hz)`**.
    - Watch tapping confidence hit **94%** and auto-broadcast a survivor beacon across the mesh!
-
-5. **Lifeboat Priority Routing**:
-   - Run `npm run test:lifeboat` or view `/lifeboat` to showcase the 100/100 multi-sensor lethality score and prioritized rescue dispatch queue.
 
 ---
 
@@ -234,16 +212,12 @@ npm run build
 
 | Endpoint | Method | Port | Description |
 |---|---|---|---|
-| `/socket.io` | WS / HTTP | 4001 | WebRTC signaling & EchoLocate socket handlers |
+| `/socket.io` | WS / HTTP | 4001 | WebRTC signaling & EvoSense socket handlers |
 | `/sync` | POST | 4002 | Opportunistic cloud telemetry sync |
 | `/model` | GET / POST | 4002 | AI classifier model distribution & updates |
-| `/echolocate-api/status` | GET | 4003 | EchoLocate server status & active round metrics |
-| `/api/auto-beacon` | POST | 4001 / 4004 | Ingests PulseSeeker passive survivor beacons |
-| `/api/heartbeat` | POST | 4004 | Lifeboat multi-sensor lethality scoring & enqueuing |
-| `/api/priority/queue` | GET | 4004 | Returns queue metrics & next critical messages |
-| `/api/priority/critical` | GET | 4004 | Returns all active critical messages with coordinates |
-| `/api/alert/send` | POST | 4004 | Triggers emergency alert dispatch for critical queue |
-| `/api/priority/stats` | GET | 4004 | Returns detailed queue stats & throughput trends |
+| `/echolocate-api/status` | GET | 4003 | EvoSense server status & active round metrics |
+| `/api/auto-beacon` | POST | 4001 | Ingests InertiaSense passive survivor beacons |
+| `/api/pulse-seeker/model` | GET | 4001 | Quantized TinyML classifier metadata |
 
 ---
 

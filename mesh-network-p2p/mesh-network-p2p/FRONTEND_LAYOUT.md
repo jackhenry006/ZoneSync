@@ -1,8 +1,8 @@
-# 🎨 MeshGrid P2P & Disaster Rescue Suite — Frontend Layout Guide
+# 🎨 ZoneSync P2P & Disaster Operations Suite — Frontend Layout Guide
 
 > **Architecture, Component Hierarchy, Route Mapping, and UI Enhancement Guide**
 
-This document details the complete frontend layout, component structure, design system tokens, and page workflows for **MeshGrid P2P v3.0**. Use this guide to easily navigate, customize, and enhance the user interface.
+This document details the complete frontend layout, component structure, design system tokens, and page workflows for **ZoneSync P2P v3.0**. Use this guide to easily navigate, customize, and enhance the user interface.
 
 ---
 
@@ -13,35 +13,33 @@ graph TD
   App[App.jsx - BrowserRouter] --> Navbar[Navbar.jsx - Top Header]
   App --> Routes[React Router Routes]
   
-  Routes --> Route1["/ (MeshConsole.jsx)"]
-  Routes --> Route2["/echolocate (EchoLocateView.jsx)"]
-  Routes --> Route3["/pulseseeker (PulseSeekerView.jsx)"]
-  Routes --> Route4["/lifeboat (LifeboatView.jsx)"]
-  Routes --> Route5["/dashboard (CloudDashboard.jsx)"]
+  Routes --> Route1["/ (ConnectX.jsx)"]
+  Routes --> Route2["/echolocate (EvoSenseView.jsx)"]
+  Routes --> Route3["/pulseseeker (InertiaSenseView.jsx)"]
+  Routes --> Route4["/dashboard (CloudDashboard.jsx)"]
 
-  Route1 --> JoinModal[JoinModal.jsx - Peer Registration]
+  Route1 --> JoinModal[JoinModal.jsx - Peer Registration & Mode Switcher]
   Route1 --> Sidebar[Sidebar.jsx - Network Controls & Widgets]
   Route1 --> Canvas[MeshCanvas.jsx - 2D Graph Topology Visualizer]
   Route1 --> Composer[Composer.jsx - E2E Encrypted Text/Image/Voice]
 
-  Route2 --> EchoLocatePanel[EchoLocatePanel.jsx - 2D Radar Canvas]
-  Route3 --> PulseSeekerPanel[PulseSeekerPanel.jsx - Passive Victim AI]
-  Route4 --> LifeboatPanel[LifeboatPanel.jsx - Multi-Sensor Lethality Scoring]
+  Route2 --> EvoSensePanel[EvoSensePanel.jsx - 2D/3D Radar Canvas]
+  Route3 --> InertiaSensePanel[InertiaSensePanel.jsx - Passive Victim AI]
 ```
 
 ---
 
 ## 🖼️ 2. Detailed Page Layouts & Component Specifications
 
-### 🌐 Page 1: Mesh Console (`/`)
+### 🌐 Page 1: ConnectX (`/`)
 *Primary serverless P2P messaging interface and distributed network graph visualizer.*
 
 #### Components:
 1. **`Navbar.jsx`**:
-   - **Left**: Brand logo (`⚡ MESHGRID P2P`).
-   - **Right**: Navigation tabs (`🌐 Mesh Console`, `📡 EchoLocate`, `🆘 PulseSeeker`, `🚤 Lifeboat`, `☁️ Cloud Dashboard`).
+   - **Left**: Brand logo (`⚡ ZoneSync`).
+   - **Right**: Navigation tabs (`🌐 ConnectX`, `📡 EvoSense`, `⚡ InertiaSense`, `☁️ Cloud Dashboard`).
 2. **`JoinModal.jsx`**:
-   - Initial modal dialog requesting Device Display Name. Automatically generates a unique peer ID.
+   - Initial modal dialog requesting Device Display Name and operational mode selector. Automatically generates a unique peer ID.
 3. **`MeshCanvas.jsx`**:
    - **HTML5 Canvas** rendering real-time network topology:
      - Nodes displayed as glowing circular avatars with name labels.
@@ -58,21 +56,21 @@ graph TD
    - **Security Card**: Displays `🔒 End-to-End Encryption — Active` badge & ECDH public key fingerprint.
    - **Location Card**: Opt-in continuous GPS location sharing & manual coordinate fallback.
    - **Cloud Sync**: Toggle background telemetry sync to port 4002.
-   - **Quick Shortcuts**: Navigation cards for EchoLocate, PulseSeeker, and Lifeboat.
+   - **Quick Shortcuts**: Navigation cards for EvoSense and InertiaSense.
    - **Simulation Tool**: `⚠ Simulate Failure` button to simulate node drops and test self-healing Dijkstra rerouting.
 
 ---
 
-### 📡 Page 2: EchoLocate Radar Map (`/echolocate`)
-*Acoustic-only 2D indoor positioning system canvas without GPS or WiFi RSSI.*
+### 📡 Page 2: EvoSense Radar Map (`/echolocate` or `/evosense`)
+*Acoustic-only 2D/3D indoor positioning system canvas without GPS or WiFi RSSI.*
 
 #### Components:
-1. **`EchoLocatePanel.jsx`**:
-   - **2D Radar Canvas**:
+1. **`EvoSensePanel.jsx`**:
+   - **2D/3D Radar Canvas**:
      - Polar scale rings (5m, 10m, 15m, 20m).
      - Pairwise distance vectors connecting detected devices.
      - Grid coordinates for relative positioning $(x, y)$.
-     - Rotating radar sweep animation.
+     - 3D interactive orbit and perspective projection.
    - **Control Header**:
      - Chirp Sweep Select (17–19 kHz LFM sweep).
      - Action Buttons: `🔊 Play Test Chirp`, `⚡ Simulate Demo Plot` (forces instant visual plot for demonstration on non-mic environments).
@@ -80,11 +78,11 @@ graph TD
 
 ---
 
-### 🆘 Page 3: PulseSeeker Rescue Dashboard (`/pulseseeker`)
+### ⚡ Page 3: InertiaSense Rescue Dashboard (`/pulseseeker` or `/inertiasense`)
 *AI-powered passive victim detection system for trapped or unconscious survivors.*
 
 #### Components:
-1. **`PulseSeekerPanel.jsx`**:
+1. **`InertiaSensePanel.jsx`**:
    - **Status Header**: Active detection badges, environmental status tag (`basement`, `rooftop`, `collapsed-structure`).
    - **Disaster Simulation Suite**:
      - `🔨 Simulate Tapping (3.2 Hz)`: Simulates periodic wall/pipe tapping.
@@ -100,39 +98,7 @@ graph TD
 
 ---
 
-### 🚤 Page 4: Lifeboat Priority Routing (`/lifeboat`)
-*Server-side multi-sensor lethality calculator & 4-tier priority queue engine.*
-
-#### Components:
-1. **`LifeboatPanel.jsx`**:
-   - **Disaster Presets Bar**:
-     - `🌊 Severe Flood & Water Rise`
-     - `🩸 Trapped Injured Victim`
-     - `🛌 Unconscious Stillness (>10m)`
-     - `🟢 Routine Safe Check-in`
-   - **Form Ingestion Card**:
-     - Device ID & emergency message input.
-     - Barometer drop rate input (hPa/min).
-     - Stillness duration input (minutes).
-     - Ambient light slider (0–500 lux).
-     - Battery level slider (1–100%).
-     - Water proximity checkbox (`nearWater: true`).
-     - Button: `⚡ Calculate Lethality Score & Enqueue Message`.
-   - **Risk Assessment Output Card**:
-     - Circular Score Gauge (0–100) with color coding (`Critical` red, `Elevated` amber, `Normal` blue, `Low` green).
-     - **Horizontal Score Progress Bar Indicator**.
-     - Priority Badge & Estimated Delivery Window (`Immediate rescue dispatch (< 1 min)`).
-     - Contributed Factors Breakdown (+50, +30, +25, +15 pts).
-     - Actionable Rescue Recommendations list.
-   - **Live Priority Queues Grid**:
-     - Queue count cards for Critical, Elevated, Normal, and Low queues.
-     - System capacity metrics (total queued, processed, dropped).
-   - **Rescuer Dispatch Feed**:
-     - `🚨 Dispatch Rescuer Alerts` button and active dispatched alert cards.
-
----
-
-### ☁️ Page 5: Remote Cloud Dashboard (`/dashboard`)
+### ☁️ Page 4: Remote Cloud Dashboard (`/dashboard`)
 *Remote command center ops view for monitoring offline mesh statistics and updating AI models.*
 
 #### Components:
@@ -182,6 +148,6 @@ Here are ideas and guidelines for extending the frontend:
 2. **3D Mesh Topology Map**:
    - Upgrade `MeshCanvas.jsx` using `Three.js` or `React Three Fiber` for a 3D globe or spatial node network.
 3. **Interactive Map Tiles**:
-   - Embed `Leaflet.js` or `Mapbox GL` inside `LifeboatPanel.jsx` and `PulseSeekerPanel.jsx` to show survivor pin markers on real GIS satellite maps.
+   - Embed `Leaflet.js` or `Mapbox GL` inside `InertiaSensePanel.jsx` to show survivor pin markers on real GIS satellite maps.
 4. **Sound Alerts for Critical SOS**:
-   - Use Web Audio API inside `MeshConsole.jsx` to play an alarm tone when a `critical` priority message is received.
+   - Use Web Audio API inside `ConnectX.jsx` to play an alarm tone when a `critical` priority message is received.

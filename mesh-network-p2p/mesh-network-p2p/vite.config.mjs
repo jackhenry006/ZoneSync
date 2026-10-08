@@ -135,7 +135,7 @@ export default defineConfig({
             if (isIgnoredError(err)) {
               if (res && !res.headersSent && typeof res.writeHead === 'function') {
                 res.writeHead(504, { 'Content-Type': 'text/plain' });
-                res.end('Lifeboat API server offline');
+                res.end('Backend API server offline');
               }
               return;
             }

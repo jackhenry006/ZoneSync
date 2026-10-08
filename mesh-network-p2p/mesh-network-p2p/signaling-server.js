@@ -19,15 +19,8 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, "dist")));
 app.use(express.static(path.join(__dirname, "public")));
 
-// In-memory store for PulseSeeker survivor beacons
+// In-memory store for InertiaSense survivor beacons
 const survivorBeacons = [];
-
-// Mount Lifeboat Priority Queue Services
-const { LethalityCalculator } = require("./lethality-calculator");
-const { LifeboatPriorityQueue } = require("./priority-queue");
-const lifeboatCalculator = new LethalityCalculator();
-const lifeboatQueue = new LifeboatPriorityQueue({ maxSize: 10000 });
-const lifeboatAlertLog = [];
 
 // ---- Cloud Telemetry & AI Model Ops Store ----
 const nodeState = new Map(); // nodeId -> latest telemetry snapshot
@@ -125,121 +118,61 @@ function computeSummary() {
   };
 }
 
+app.get("/api/auto-beacon", (req, res) => {
+  res.json({ beacons: survivorBeacons });
+});
+
 app.post("/api/auto-beacon", (req, res) => {
   const beacon = req.body || {};
   const beaconEntry = {
-    beaconId: `beacon-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+    beaconId: beacon.id || beacon.beaconId || `beacon-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
     receivedAt: Date.now(),
+    location: beacon.location || (typeof beacon.lat === 'number' ? { lat: beacon.lat, lng: beacon.lng, accuracy: beacon.accuracy || 10 } : { lat: 37.7749, lng: -122.4194, accuracy: 8 }),
     ...beacon,
   };
   survivorBeacons.unshift(beaconEntry);
   if (survivorBeacons.length > 100) survivorBeacons.length = 100;
 
-  console.log(`[PulseSeeker] 🆘 Emergency Survivor Beacon Received: ${beacon.type || 'unknown'} (${beacon.confidence || 0}% confidence)`);
+  console.log(`[InertiaSense] 🆘 Emergency Survivor Beacon Received: ${beacon.type || 'unknown'} (${beacon.confidence || 0}% confidence)`);
+
+  pushEvent({
+    nodeId: beaconEntry.beaconId,
+    name: "InertiaSense AI",
+    type: "critical",
+    text: `🆘 Emergency Survivor Beacon: ${beacon.type || 'unknown'} (${beacon.confidence || 0}% confidence)`
+  });
+  io.emit("update", currentState());
 
   // Broadcast survivor alert to all connected sockets
+  io.emit("inertiasense:beacon_received", beaconEntry);
   io.emit("pulseseeker:beacon_received", beaconEntry);
-  res.json({ success: true, beaconId: beaconEntry.beaconId, timestamp: beaconEntry.receivedAt });
+  res.json({ success: true, beaconId: beaconEntry.beaconId, timestamp: beaconEntry.receivedAt, location: beaconEntry.location });
 });
 
-app.get("/api/pulse-seeker/model", (req, res) => {
+const modelResponse = (req, res) => {
   res.json({
     version: "1.2.0-tinyml",
-    modelUrl: "/api/pulse-seeker/model",
+    modelUrl: "/api/inertiasense/model",
     inputFeatures: 25,
     outputClasses: ["tapping", "inertia", "normal", "noise"],
     quantized: true,
     sizeKb: 240
   });
-});
+};
 
-// ===== Lifeboat Routing System Endpoints =====
-app.post("/api/heartbeat", (req, res) => {
-  try {
-    const data = req.body || {};
-    if (!data.deviceId) {
-      return res.status(400).json({ error: "Missing required parameter: deviceId" });
-    }
-
-    const result = lifeboatCalculator.calculate(data);
-    const queueResult = lifeboatQueue.enqueue({
-      deviceId: data.deviceId,
-      sensors: data.sensors,
-      location: data.location,
-      message: data.message || { text: data.text || "" },
-      factors: result.factors
-    }, result.score);
-
-    res.json({
-      ...result,
-      deviceId: data.deviceId,
-      queuePosition: queueResult.position,
-      estimatedDelivery: queueResult.estimatedTime,
-      queueId: queueResult.queueId,
-      timestamp: Date.now()
-    });
-  } catch (err) {
-    console.error("[Lifeboat Server Error]", err);
-    res.status(500).json({ error: "Internal calculation error", message: err.message });
-  }
-});
-
-app.get("/api/priority/queue", (req, res) => {
-  try {
-    res.json({
-      success: true,
-      stats: lifeboatQueue.getStats(),
-      nextCritical: lifeboatQueue.queues.critical.slice(0, 5).map(e => ({
-        id: e.id, deviceId: e.meta.deviceId, score: e.score, priority: e.priority, messageText: e.message.text, location: e.message.location, timestamp: e.timestamp
-      }))
-    });
-  } catch (err) {
-    res.status(500).json({ error: "Failed to fetch queue status", message: err.message });
-  }
-});
-
-app.get("/api/priority/critical", (req, res) => {
-  try {
-    res.json({
-      success: true,
-      count: lifeboatQueue.queues.critical.length,
-      criticalMessages: lifeboatQueue.queues.critical.map(e => ({
-        id: e.id, deviceId: e.meta.deviceId, score: e.score, priority: e.priority, message: e.message, location: e.meta.location, factors: e.meta.factors, timestamp: e.timestamp
-      }))
-    });
-  } catch (err) {
-    res.status(500).json({ error: "Failed to fetch critical messages", message: err.message });
-  }
-});
-
-app.post("/api/alert/send", (req, res) => {
-  try {
-    const { count } = req.body || {};
-    const dequeued = lifeboatQueue.dequeue(typeof count === "number" ? count : 10);
-    const dispatched = dequeued.map(e => {
-      const item = { alertId: `alert-${Date.now()}`, id: e.id, deviceId: e.meta.deviceId, score: e.score, priority: e.priority, location: e.meta.location, messageText: e.message.text, dispatchedAt: Date.now() };
-      lifeboatAlertLog.unshift(item);
-      return item;
-    });
-    if (lifeboatAlertLog.length > 200) lifeboatAlertLog.length = 200;
-    res.json({ success: true, dispatchedCount: dispatched.length, dispatchedAlerts: dispatched });
-  } catch (err) {
-    res.status(500).json({ error: "Failed to send emergency alerts", message: err.message });
-  }
-});
-
-app.get("/api/priority/stats", (req, res) => {
-  try {
-    res.json({ success: true, stats: lifeboatQueue.getStats(), recentAlertsCount: lifeboatAlertLog.length, recentAlerts: lifeboatAlertLog.slice(0, 20), serverTimestamp: Date.now() });
-  } catch (err) {
-    res.status(500).json({ error: "Failed to fetch queue statistics", message: err.message });
-  }
-});
+app.get("/api/inertiasense/model", modelResponse);
+app.get("/api/pulse-seeker/model", modelResponse);
 
 // ===== Cloud Sync & AI Model Endpoints =====
 app.post("/sync", (req, res) => {
   const { nodeId, name, topology, stats, recentEvents } = req.body || {};
   if (!nodeId) return res.status(400).json({ error: "nodeId required" });
+
+  for (const [existingId, existingNode] of nodeState.entries()) {
+    if (existingNode.name === name && existingId !== nodeId) {
+      nodeState.delete(existingId);
+    }
+  }
 
   nodeState.set(nodeId, {
     nodeId, name, topology, stats,
@@ -286,12 +219,12 @@ app.use((req, res) => {
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: "*" } });
 
-// Attach EchoLocate acoustic positioning handlers to primary WebSocket server
+// Attach EvoSense acoustic positioning handlers to primary WebSocket server
 try {
-  const { setupEchoLocate } = require("./echolocate-server.js");
+  const { setupEchoLocate } = require("./evosense-server.js");
   setupEchoLocate(io);
 } catch (err) {
-  console.warn("Could not mount EchoLocate handlers:", err.message);
+  console.warn("Could not mount EvoSense handlers:", err.message);
 }
 
 // registry: id -> { id, name, socketId }  (bootstrap directory only)
@@ -301,6 +234,14 @@ io.on("connection", (socket) => {
   socket.emit("update", currentState());
 
   socket.on("register", ({ id, name }) => {
+    // If a node with the same name or same id already existed, remove the stale registry entry
+    for (const [regId, regNode] of registry.entries()) {
+      if (regId === id || (regNode.name === name && regNode.socketId !== socket.id)) {
+        registry.delete(regId);
+        socket.broadcast.emit("peer_left_directory", { id: regId });
+      }
+    }
+
     registry.set(id, { id, name, socketId: socket.id });
     socket.data.nodeId = id;
 

@@ -57,9 +57,22 @@ export class MeshNode {
     this._onRegisteredHandler = ({ suggestions }) => {
       suggestions.forEach(p => this.connectToPeer(p.id, p.name, true));
     };
+    this._onPeerLeftHandler = ({ id }) => {
+      if (this.peers.has(id)) {
+        const p = this.peers.get(id);
+        if (p.conn) {
+          try { p.conn.close(); } catch (e) {}
+        }
+        this.peers.delete(id);
+        this.cb.onPeerState();
+      }
+      this.linkState.delete(id);
+      this._floodMyTopology();
+    };
 
     this.socket.on("signal", this._onSignalHandler);
     this.socket.on("registered", this._onRegisteredHandler);
+    this.socket.on("peer_left_directory", this._onPeerLeftHandler);
 
     // Periodically re-measure link RTT to direct peers and re-flood
     this.pingInterval = setInterval(() => this._pingAll(), 3000);
@@ -74,6 +87,7 @@ export class MeshNode {
     }
     this.socket.off("signal", this._onSignalHandler);
     this.socket.off("registered", this._onRegisteredHandler);
+    this.socket.off("peer_left_directory", this._onPeerLeftHandler);
     this.goOffline();
   }
 
@@ -432,9 +446,19 @@ export class MeshNode {
     const nodes = [];
     const linkMap = new Map();
     for (const [id, info] of this.linkState.entries()) {
-      const hasEdges = info.neighbors.length > 0 || [...this.linkState.values()].some(o => o.neighbors.some(n => n.id === id));
-      nodes.push({ id, name: info.name, alive: hasEdges || (id === this.id && this.peers.size >= 0) });
-      for (const n of info.neighbors) {
+      const isDirectPeer = this.peers.has(id) && this.peers.get(id).state === "connected";
+      const hasOutgoing = (info.neighbors || []).length > 0;
+      const hasIncoming = [...this.linkState.values()].some(o => (o.neighbors || []).some(n => n.id === id));
+      const hasEdges = hasOutgoing || hasIncoming;
+
+      // If node is not self and has no links and is not a connected peer, remove stale linkState
+      if (id !== this.id && !hasEdges && !isDirectPeer) {
+        this.linkState.delete(id);
+        continue;
+      }
+
+      nodes.push({ id, name: info.name, alive: id === this.id || hasEdges || isDirectPeer });
+      for (const n of (info.neighbors || [])) {
         const key = edgeKey(id, n.id);
         const prev = linkMap.get(key);
         const congestion = n.congestion || "normal";
@@ -510,22 +534,6 @@ export class MeshNode {
       text: `"${text}"`,
       meta: `→ routed via ${path.length - 1} hop(s): ${path.map(id => (this.linkState.get(id)||{}).name || id).join(" → ")}${location ? " · 📍 location attached" : ""}${envelope.encrypted ? " · 🔒 encrypted" : " · 🔓 unencrypted"}`,
     });
-
-    // Opportunistically post heartbeat to Lifeboat Priority Queue & Lethality Calculator
-    const baseUrl = (import.meta.env.VITE_BACKEND_URL || "").replace(/\/$/, "");
-    fetch(baseUrl ? `${baseUrl}/api/heartbeat` : "/api/heartbeat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        deviceId: this.name || this.id,
-        sensors: {
-          ambientLight: 5,
-          battery: 85
-        },
-        location: location || { lat: 37.7749, lng: -122.4194, nearWater: false },
-        message: { text, timestamp: Date.now() }
-      })
-    }).catch(() => {});
 
     this._forwardEnvelope(envelope);
   }
