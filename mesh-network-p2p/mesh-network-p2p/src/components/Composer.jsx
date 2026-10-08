@@ -29,10 +29,10 @@ export function Composer({
   onToggleSidebar,
 }) {
   const [showLog, setShowLog] = useState(false);
-  const [showDevices, setShowDevices] = useState(true);
+  const [showDevices, setShowDevices] = useState(false);
 
   function handleQuickPanic() {
-    setText("CRITICAL EMERGENCY: Trapped under rubble, bleeding heavily, need immediate rescue");
+    setText("HIGH PRIORITY: Rapid coordination required at current zone — anomaly alert dispatched.");
     if (otherKnownNodes.length > 0 && !target) {
       setTarget(otherKnownNodes[0].id);
     }
@@ -151,9 +151,9 @@ export function Composer({
       {/* 2. Send E2E Encrypted Message Composer */}
       <div className="composer">
         <div className="composer-header">
-          <div className="section-label" style={{ padding: 0 }}>📡 Send Encrypted Message</div>
-          <button className="panic-preset-btn" onClick={handleQuickPanic}>
-            🚨 PANIC SOS PRESET
+          <div className="section-label" style={{ padding: 0 }}>📡 Route Message</div>
+          <button className="panic-preset-btn" onClick={handleQuickPanic} title="Broadcast high-priority operational alert">
+            ⚡ PRIORITY ALERT
           </button>
         </div>
 
@@ -161,28 +161,53 @@ export function Composer({
           id="target-select"
           value={target}
           onChange={e => setTarget(e.target.value)}
-          style={{ fontSize: 14, padding: "10px 12px" }}
+          style={{ fontSize: 15.5, padding: "12px 14px" }}
         >
-          <option value="">Select destination peer…</option>
+          {otherKnownNodes.length === 0 ? (
+            <option value="">No peers connected yet…</option>
+          ) : (
+            !target && <option value="">Select destination peer…</option>
+          )}
           {otherKnownNodes.map(n => <option key={n.id} value={n.id}>{n.name}</option>)}
         </select>
 
         <textarea
           id="message-input"
           rows="3"
-          placeholder='Try typing: "need medical help, trapped under rubble"'
+          placeholder='Type message to route across mesh (e.g. "Zone A status normal, telemetry nominal")...'
           value={text}
           onChange={e => setText(e.target.value)}
-          style={{ fontSize: 14, padding: "10px 12px" }}
+          style={{ fontSize: 15.5, padding: "12px 14px" }}
         />
 
         <div className="urgency-preview">
-          {urgencyPreview && (
-            <span className={`urgency-badge ${urgencyPreview}`} style={{ fontSize: 13, padding: "6px 12px" }}>
-              {urgencyPreview === "critical" ? "🔴" : urgencyPreview === "elevated" ? "🟡" : "🟢"}
-              {" "}On-Device AI Classification: {urgencyPreview.toUpperCase()}
-            </span>
-          )}
+          {urgencyPreview && (() => {
+            const level = typeof urgencyPreview === "object" ? urgencyPreview.level : urgencyPreview;
+            const score = typeof urgencyPreview === "object" ? urgencyPreview.score : (level === "critical" ? 9 : level === "elevated" ? 5 : 1);
+            const matched = typeof urgencyPreview === "object" && urgencyPreview.matched ? urgencyPreview.matched : [];
+
+            return (
+              <div className={`ai-priority-card level-${level}`}>
+                <div className="ai-priority-header">
+                  <span className={`ai-priority-badge ${level}`}>
+                    {level === "critical"
+                      ? "⚠ HIGH PRIORITY"
+                      : level === "elevated"
+                      ? "⚡ ATTENTION"
+                      : "✓ NORMAL"}
+                  </span>
+                  <span className="ai-priority-score">
+                    AI Priority Score: <strong>{score}/10</strong>
+                  </span>
+                </div>
+                {matched.length > 0 && (
+                  <div className="ai-priority-triggers">
+                    Triggers: {matched.map(m => m.term).join(", ")}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
         </div>
 
         {/* Live Recording In-Progress Banner with Stop & Send / Cancel */}
@@ -275,7 +300,7 @@ export function Composer({
             <button
               type="button"
               className="tiny-btn"
-              style={{ flex: 1, padding: "10px", fontSize: 13, fontWeight: 700 }}
+              style={{ flex: 1, padding: "12px", fontSize: 14.5, fontWeight: 700 }}
               onClick={pickImage}
               disabled={!joined || !online}
             >
@@ -286,8 +311,8 @@ export function Composer({
               className="tiny-btn"
               style={{
                 flex: 1,
-                padding: "10px",
-                fontSize: 13,
+                padding: "12px",
+                fontSize: 14.5,
                 fontWeight: 700,
               }}
               onClick={toggleRecording}
@@ -308,7 +333,7 @@ export function Composer({
         />
 
         {Object.entries(mediaProgress).map(([id, p]) => (
-          <div key={id} style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--signal)", marginBottom: 8 }}>
+          <div key={id} style={{ fontFamily: "var(--mono)", fontSize: 13.5, color: "var(--accent-primary)", marginBottom: 8 }}>
             Receiving {p.kind}… {p.received}/{p.total} chunks
           </div>
         ))}
@@ -317,7 +342,7 @@ export function Composer({
           className="send-btn"
           id="send-btn"
           onClick={send}
-          style={{ fontSize: 14, padding: "12px", fontWeight: 800 }}
+          style={{ fontSize: 16, padding: "14px", fontWeight: 800 }}
           disabled={!joined || !online || !text.trim() || !target}
         >
           Route Encrypted Message →

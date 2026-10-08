@@ -31,11 +31,38 @@ export function EchoLocatePanel({ socket, selfId, selfName }) {
   const [sweepRange, setSweepRange] = useState("17-19");
   const [secondsAgo, setSecondsAgo] = useState(null);
 
-  // 3D Projection Camera State
-  const [yawAngle, setYawAngle] = useState(45); // horizontal orbit angle (degrees)
-  const [pitchAngle, setPitchAngle] = useState(35); // tilt angle (degrees)
+  // 3D Projection Camera State & Live Refs
   const [autoRotate, setAutoRotate] = useState(true);
-  const [zoomScale, setZoomScale] = useState(65); // px per meter
+  const [zoomScale, setZoomScale] = useState(() => {
+    try {
+      return typeof window !== "undefined" && window.innerWidth < 640 ? 44 : 65;
+    } catch (e) {
+      return 65;
+    }
+  });
+
+  const yawRef = useRef(45);
+  const pitchRef = useRef(35);
+  const zoomScaleRef = useRef(typeof window !== "undefined" && window.innerWidth < 640 ? 44 : 65);
+  const autoRotateRef = useRef(true);
+  const positionsDataRef = useRef(positionsData);
+
+  const isDraggingRef = useRef(false);
+  const lastPointerPosRef = useRef({ x: 0, y: 0 });
+  const lastTouchDistRef = useRef(null);
+
+  // Keep refs synced with props / state
+  useEffect(() => {
+    positionsDataRef.current = positionsData;
+  }, [positionsData]);
+
+  useEffect(() => {
+    autoRotateRef.current = autoRotate;
+  }, [autoRotate]);
+
+  useEffect(() => {
+    zoomScaleRef.current = zoomScale;
+  }, [zoomScale]);
 
   const isLocalIpInsecure =
     typeof window !== "undefined" &&
@@ -72,16 +99,76 @@ export function EchoLocatePanel({ socket, selfId, selfName }) {
     return () => clearInterval(interval);
   }, [positionsData.timestamp]);
 
-  // Auto-rotate 3D orbit angle
-  useEffect(() => {
-    if (!autoRotate) return;
-    const interval = setInterval(() => {
-      setYawAngle((prev) => (prev + 0.5) % 360);
-    }, 30);
-    return () => clearInterval(interval);
-  }, [autoRotate]);
+  // Touch and Pointer Event Handlers for 3D Orbit & Zoom (Buttery smooth 60fps)
+  const handlePointerDown = (e) => {
+    isDraggingRef.current = true;
+    lastPointerPosRef.current = { x: e.clientX, y: e.clientY };
+    autoRotateRef.current = false;
+    setAutoRotate(false);
+  };
 
-  // 3D Spatial Canvas Renderer
+  const handlePointerMove = (e) => {
+    if (!isDraggingRef.current) return;
+    const dx = e.clientX - lastPointerPosRef.current.x;
+    const dy = e.clientY - lastPointerPosRef.current.y;
+    lastPointerPosRef.current = { x: e.clientX, y: e.clientY };
+
+    yawRef.current = (yawRef.current + dx * 0.45 + 360) % 360;
+    pitchRef.current = Math.max(5, Math.min(85, pitchRef.current - dy * 0.35));
+  };
+
+  const handlePointerUp = () => {
+    isDraggingRef.current = false;
+  };
+
+  const handleTouchStart = (e) => {
+    if (e.touches.length === 1) {
+      isDraggingRef.current = true;
+      lastPointerPosRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+      autoRotateRef.current = false;
+      setAutoRotate(false);
+    } else if (e.touches.length === 2) {
+      const dist = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      );
+      lastTouchDistRef.current = dist;
+    }
+  };
+
+  const handleTouchMove = (e) => {
+    if (e.touches.length === 1 && isDraggingRef.current) {
+      const dx = e.touches[0].clientX - lastPointerPosRef.current.x;
+      const dy = e.touches[0].clientY - lastPointerPosRef.current.y;
+      lastPointerPosRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+
+      yawRef.current = (yawRef.current + dx * 0.5 + 360) % 360;
+      pitchRef.current = Math.max(5, Math.min(85, pitchRef.current - dy * 0.4));
+    } else if (e.touches.length === 2 && lastTouchDistRef.current !== null) {
+      const dist = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      );
+      const diff = dist - lastTouchDistRef.current;
+      lastTouchDistRef.current = dist;
+      const nextZoom = Math.max(25, Math.min(130, zoomScaleRef.current + diff * 0.3));
+      zoomScaleRef.current = nextZoom;
+      setZoomScale(Math.round(nextZoom));
+    }
+  };
+
+  const handleTouchEnd = () => {
+    isDraggingRef.current = false;
+    lastTouchDistRef.current = null;
+  };
+
+  const handleWheel = (e) => {
+    const nextZoom = Math.max(25, Math.min(130, zoomScaleRef.current - Math.sign(e.deltaY) * 6));
+    zoomScaleRef.current = nextZoom;
+    setZoomScale(Math.round(nextZoom));
+  };
+
+  // 3D Spatial Canvas Renderer (Single stable animation frame loop)
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -90,17 +177,17 @@ export function EchoLocatePanel({ socket, selfId, selfName }) {
     let animId;
     let sweepAngle = 0;
 
-    const project3D = (x, y, z, centerX, centerY) => {
-      const yawRad = (yawAngle * Math.PI) / 180;
-      const pitchRad = (pitchAngle * Math.PI) / 180;
+    const project3D = (x, y, z, centerX, centerY, currentYaw, currentPitch, currentZoom) => {
+      const yawRad = (currentYaw * Math.PI) / 180;
+      const pitchRad = (currentPitch * Math.PI) / 180;
 
       // Rotate around Z axis (Yaw)
       const xRot = x * Math.cos(yawRad) - y * Math.sin(yawRad);
       const yRot = x * Math.sin(yawRad) + y * Math.cos(yawRad);
 
       // Tilt around X axis (Pitch) & Elevation (Z)
-      const px = centerX + xRot * zoomScale;
-      const py = centerY - (yRot * Math.sin(pitchRad) + z * Math.cos(pitchRad)) * zoomScale;
+      const px = centerX + xRot * currentZoom;
+      const py = centerY - (yRot * Math.sin(pitchRad) + z * Math.cos(pitchRad)) * currentZoom;
 
       // Perspective Scale Factor
       const depth = yRot * Math.cos(pitchRad);
@@ -110,30 +197,46 @@ export function EchoLocatePanel({ socket, selfId, selfName }) {
     };
 
     const render = () => {
-      const width = canvas.clientWidth || 900;
-      const height = canvas.clientHeight || 550;
-      if (canvas.width !== width || canvas.height !== height) {
-        canvas.width = width;
-        canvas.height = height;
+      // Auto-orbit rotation increment inside the 60fps loop
+      if (autoRotateRef.current) {
+        yawRef.current = (yawRef.current + 0.35) % 360;
       }
+
+      const currentYaw = yawRef.current;
+      const currentPitch = pitchRef.current;
+      const currentZoom = zoomScaleRef.current;
+      const currentPositions = positionsDataRef.current || { positions: {}, distances: [] };
+
+      const rect = canvas.getBoundingClientRect();
+      const width = rect.width || canvas.clientWidth || 400;
+      const height = rect.height || canvas.clientHeight || 360;
+      const dpr = window.devicePixelRatio || 1;
+
+      if (canvas.width !== Math.round(width * dpr) || canvas.height !== Math.round(height * dpr)) {
+        canvas.width = Math.round(width * dpr);
+        canvas.height = Math.round(height * dpr);
+      }
+
+      ctx.save();
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
       // Background Gradient
       const bgGrad = ctx.createLinearGradient(0, 0, 0, height);
-      bgGrad.addColorStop(0, "#080C14");
-      bgGrad.addColorStop(1, "#0A0E18");
+      bgGrad.addColorStop(0, "#111315");
+      bgGrad.addColorStop(1, "#15191B");
       ctx.fillStyle = bgGrad;
       ctx.fillRect(0, 0, width, height);
 
       const centerX = width / 2;
-      const centerY = height / 2 + 20;
+      const centerY = height / 2 + 15;
 
       sweepAngle = (sweepAngle + 0.02) % (Math.PI * 2);
 
-      // 1. Draw 3D Ground Plane Rings & Grid
+      // 1. Draw 3D Ground Plane Subtle Concentric Rings & Grid
       const rings = [1, 2, 3, 5, 8, 12];
       rings.forEach((rMeters) => {
         ctx.beginPath();
-        ctx.strokeStyle = "rgba(51, 214, 166, 0.08)";
+        ctx.strokeStyle = "rgba(255, 176, 0, 0.12)";
         ctx.lineWidth = 1;
 
         const points = 64;
@@ -141,89 +244,89 @@ export function EchoLocatePanel({ socket, selfId, selfName }) {
           const theta = (i / points) * Math.PI * 2;
           const rx = Math.cos(theta) * rMeters;
           const ry = Math.sin(theta) * rMeters;
-          const p = project3D(rx, ry, 0, centerX, centerY);
+          const p = project3D(rx, ry, 0, centerX, centerY, currentYaw, currentPitch, currentZoom);
           if (i === 0) ctx.moveTo(p.px, p.py);
           else ctx.lineTo(p.px, p.py);
         }
         ctx.stroke();
 
         // Ring Meter Label
-        const labelP = project3D(rMeters, 0, 0, centerX, centerY);
-        ctx.fillStyle = "rgba(51, 214, 166, 0.4)";
-        ctx.font = "11px monospace";
+        const labelP = project3D(rMeters, 0, 0, centerX, centerY, currentYaw, currentPitch, currentZoom);
+        ctx.fillStyle = "rgba(255, 176, 0, 0.65)";
+        ctx.font = "10.5px 'IBM Plex Mono', monospace";
         ctx.fillText(`${rMeters}m`, labelP.px + 4, labelP.py - 4);
       });
 
-      // 2. Draw 3D Ground Axes (X: Red, Y: Green, Z: Blue)
-      const originP = project3D(0, 0, 0, centerX, centerY);
-      const xAxisP = project3D(4, 0, 0, centerX, centerY);
-      const yAxisP = project3D(0, 4, 0, centerX, centerY);
-      const zAxisP = project3D(0, 0, 3, centerX, centerY);
+      // 2. Draw 3D Ground Axes (X: Red, Y: Green, Z: Info Blue)
+      const originP = project3D(0, 0, 0, centerX, centerY, currentYaw, currentPitch, currentZoom);
+      const xAxisP = project3D(4, 0, 0, centerX, centerY, currentYaw, currentPitch, currentZoom);
+      const yAxisP = project3D(0, 4, 0, centerX, centerY, currentYaw, currentPitch, currentZoom);
+      const zAxisP = project3D(0, 0, 3, centerX, centerY, currentYaw, currentPitch, currentZoom);
 
-      // X Axis (Ground)
+      // X Axis (Ground East)
       ctx.beginPath();
-      ctx.strokeStyle = "rgba(255, 75, 92, 0.4)";
+      ctx.strokeStyle = "rgba(255, 77, 77, 0.4)";
       ctx.lineWidth = 1.5;
       ctx.moveTo(originP.px, originP.py);
       ctx.lineTo(xAxisP.px, xAxisP.py);
       ctx.stroke();
-      ctx.fillStyle = "#FF4B5C";
-      ctx.font = "bold 11px monospace";
+      ctx.fillStyle = "#FF4D4D";
+      ctx.font = "bold 10.5px 'IBM Plex Mono', monospace";
       ctx.fillText("+X (East)", xAxisP.px + 6, xAxisP.py + 4);
 
-      // Y Axis (Ground)
+      // Y Axis (Ground North)
       ctx.beginPath();
-      ctx.strokeStyle = "rgba(51, 214, 166, 0.4)";
+      ctx.strokeStyle = "rgba(34, 197, 94, 0.4)";
       ctx.lineWidth = 1.5;
       ctx.moveTo(originP.px, originP.py);
       ctx.lineTo(yAxisP.px, yAxisP.py);
       ctx.stroke();
-      ctx.fillStyle = "#33D6A6";
+      ctx.fillStyle = "#22C55E";
       ctx.fillText("+Y (North)", yAxisP.px + 6, yAxisP.py + 4);
 
       // Z Axis (Altitude)
       ctx.beginPath();
-      ctx.strokeStyle = "rgba(75, 158, 255, 0.6)";
+      ctx.strokeStyle = "rgba(56, 189, 248, 0.6)";
       ctx.lineWidth = 2;
       ctx.setLineDash([3, 3]);
       ctx.moveTo(originP.px, originP.py);
       ctx.lineTo(zAxisP.px, zAxisP.py);
       ctx.stroke();
       ctx.setLineDash([]);
-      ctx.fillStyle = "#4B9EFF";
-      ctx.fillText("+Z (Altitude/Height)", zAxisP.px + 6, zAxisP.py - 4);
+      ctx.fillStyle = "#38BDF8";
+      ctx.fillText("+Z (Elevation)", zAxisP.px + 6, zAxisP.py - 4);
 
-      // 3. Draw 3D Radar Cone Sweep
+      // 3. Draw 3D Amber Radar Spatial Sweep
       ctx.save();
       ctx.beginPath();
       ctx.moveTo(originP.px, originP.py);
-      const sweepP1 = project3D(Math.cos(sweepAngle) * 6, Math.sin(sweepAngle) * 6, 0, centerX, centerY);
-      const sweepP2 = project3D(Math.cos(sweepAngle + 0.3) * 6, Math.sin(sweepAngle + 0.3) * 6, 0, centerX, centerY);
+      const sweepP1 = project3D(Math.cos(sweepAngle) * 6, Math.sin(sweepAngle) * 6, 0, centerX, centerY, currentYaw, currentPitch, currentZoom);
+      const sweepP2 = project3D(Math.cos(sweepAngle + 0.3) * 6, Math.sin(sweepAngle + 0.3) * 6, 0, centerX, centerY, currentYaw, currentPitch, currentZoom);
       ctx.lineTo(sweepP1.px, sweepP1.py);
       ctx.lineTo(sweepP2.px, sweepP2.py);
       ctx.closePath();
       const sweepGrad = ctx.createRadialGradient(originP.px, originP.py, 0, originP.px, originP.py, 200);
-      sweepGrad.addColorStop(0, "rgba(51, 214, 166, 0.2)");
-      sweepGrad.addColorStop(1, "rgba(51, 214, 166, 0.0)");
+      sweepGrad.addColorStop(0, "rgba(255, 176, 0, 0.15)");
+      sweepGrad.addColorStop(1, "rgba(255, 176, 0, 0.0)");
       ctx.fillStyle = sweepGrad;
       ctx.fill();
       ctx.restore();
 
-      const nodeEntries = Object.entries(positionsData.positions || {});
-      const distancesList = positionsData.distances || [];
+      const nodeEntries = Object.entries(currentPositions.positions || {});
+      const distancesList = currentPositions.distances || [];
 
-      // 4. Draw 3D Pairwise Distance Vectors
+      // 4. Draw 3D Pairwise Distance Vectors in Amber
       distancesList.forEach(({ from, to, dist }) => {
-        const posA = positionsData.positions[from];
-        const posB = positionsData.positions[to];
+        const posA = currentPositions.positions[from];
+        const posB = currentPositions.positions[to];
         if (posA && posB) {
           const zA = posA.z || 0;
           const zB = posB.z || 0;
-          const pA = project3D(posA.x, posA.y, zA, centerX, centerY);
-          const pB = project3D(posB.x, posB.y, zB, centerX, centerY);
+          const pA = project3D(posA.x, posA.y, zA, centerX, centerY, currentYaw, currentPitch, currentZoom);
+          const pB = project3D(posB.x, posB.y, zB, centerX, centerY, currentYaw, currentPitch, currentZoom);
 
           ctx.beginPath();
-          ctx.strokeStyle = "rgba(240, 166, 60, 0.45)";
+          ctx.strokeStyle = "rgba(255, 176, 0, 0.45)";
           ctx.lineWidth = 1.5;
           ctx.setLineDash([4, 4]);
           ctx.moveTo(pA.px, pA.py);
@@ -234,14 +337,14 @@ export function EchoLocatePanel({ socket, selfId, selfName }) {
           // 3D Midpoint Distance Badge
           const midPx = (pA.px + pB.px) / 2;
           const midPy = (pA.py + pB.py) / 2;
-          ctx.fillStyle = "rgba(10, 15, 25, 0.85)";
+          ctx.fillStyle = "rgba(27, 31, 34, 0.9)";
           ctx.fillRect(midPx - 18, midPy - 10, 36, 16);
-          ctx.strokeStyle = "#F0A63C";
+          ctx.strokeStyle = "rgba(255, 176, 0, 0.5)";
           ctx.lineWidth = 1;
           ctx.strokeRect(midPx - 18, midPy - 10, 36, 16);
 
-          ctx.fillStyle = "#F0A63C";
-          ctx.font = "bold 11px monospace";
+          ctx.fillStyle = "#FFB000";
+          ctx.font = "bold 10px 'IBM Plex Mono', monospace";
           ctx.textAlign = "center";
           ctx.fillText(`${dist}m`, midPx, midPy + 2);
           ctx.textAlign = "left";
@@ -251,8 +354,8 @@ export function EchoLocatePanel({ socket, selfId, selfName }) {
       // Sort nodes by 3D depth for back-to-front rendering
       const sortedNodes = nodeEntries.map(([nodeId, pos]) => {
         const z = pos.z || 0;
-        const projected = project3D(pos.x, pos.y, z, centerX, centerY);
-        const groundP = project3D(pos.x, pos.y, 0, centerX, centerY);
+        const projected = project3D(pos.x, pos.y, z, centerX, centerY, currentYaw, currentPitch, currentZoom);
+        const groundP = project3D(pos.x, pos.y, 0, centerX, centerY, currentYaw, currentPitch, currentZoom);
         return { nodeId, pos, z, projected, groundP };
       }).sort((a, b) => a.projected.depth - b.projected.depth);
 
@@ -264,15 +367,15 @@ export function EchoLocatePanel({ socket, selfId, selfName }) {
         // Ground Drop Shadow Ring
         ctx.beginPath();
         ctx.ellipse(groundP.px, groundP.py, rad * 1.4, rad * 0.7, 0, 0, Math.PI * 2);
-        ctx.fillStyle = "rgba(0, 0, 0, 0.4)";
+        ctx.fillStyle = "rgba(0, 0, 0, 0.45)";
         ctx.fill();
-        ctx.strokeStyle = isSelf ? "rgba(51, 214, 166, 0.3)" : "rgba(82, 156, 255, 0.3)";
+        ctx.strokeStyle = isSelf ? "rgba(255, 176, 0, 0.3)" : "rgba(56, 189, 248, 0.3)";
         ctx.stroke();
 
         // Laser Height Tether Line (Z Column)
         if (Math.abs(z) > 0.05) {
           ctx.beginPath();
-          ctx.strokeStyle = isSelf ? "#33D6A6" : "#529CFF";
+          ctx.strokeStyle = isSelf ? "#FFB000" : "#38BDF8";
           ctx.lineWidth = 1.5;
           ctx.setLineDash([2, 2]);
           ctx.moveTo(groundP.px, groundP.py);
@@ -281,17 +384,17 @@ export function EchoLocatePanel({ socket, selfId, selfName }) {
           ctx.setLineDash([]);
 
           // Height Label
-          ctx.fillStyle = isSelf ? "#33D6A6" : "#529CFF";
-          ctx.font = "10px monospace";
+          ctx.fillStyle = isSelf ? "#FFB000" : "#38BDF8";
+          ctx.font = "10px 'IBM Plex Mono', monospace";
           const midZ = (groundP.py + projected.py) / 2;
           ctx.fillText(`z=+${z.toFixed(1)}m`, groundP.px + 8, midZ);
         }
 
-        // Glowing 3D Orb Halo
+        // Restrained 3D Orb Halo
         ctx.beginPath();
-        ctx.arc(projected.px, projected.py, rad * 2.2, 0, Math.PI * 2);
-        const haloGrad = ctx.createRadialGradient(projected.px, projected.py, 0, projected.px, projected.py, rad * 2.2);
-        haloGrad.addColorStop(0, isSelf ? "rgba(51, 214, 166, 0.4)" : "rgba(82, 156, 255, 0.35)");
+        ctx.arc(projected.px, projected.py, rad * 1.8, 0, Math.PI * 2);
+        const haloGrad = ctx.createRadialGradient(projected.px, projected.py, 0, projected.px, projected.py, rad * 1.8);
+        haloGrad.addColorStop(0, isSelf ? "rgba(255, 176, 0, 0.25)" : "rgba(56, 189, 248, 0.2)");
         haloGrad.addColorStop(1, "transparent");
         ctx.fillStyle = haloGrad;
         ctx.fill();
@@ -301,55 +404,56 @@ export function EchoLocatePanel({ socket, selfId, selfName }) {
         ctx.arc(projected.px, projected.py, rad, 0, Math.PI * 2);
         const orbGrad = ctx.createRadialGradient(projected.px - rad * 0.3, projected.py - rad * 0.3, rad * 0.1, projected.px, projected.py, rad);
         if (isSelf) {
-          orbGrad.addColorStop(0, "#80FFD7");
-          orbGrad.addColorStop(0.7, "#33D6A6");
-          orbGrad.addColorStop(1, "#188A68");
+          orbGrad.addColorStop(0, "#FFE082");
+          orbGrad.addColorStop(0.7, "#FFB000");
+          orbGrad.addColorStop(1, "#C75B00");
         } else {
-          orbGrad.addColorStop(0, "#99C8FF");
-          orbGrad.addColorStop(0.7, "#529CFF");
-          orbGrad.addColorStop(1, "#2058B8");
+          orbGrad.addColorStop(0, "#BAE6FD");
+          orbGrad.addColorStop(0.7, "#38BDF8");
+          orbGrad.addColorStop(1, "#0369A1");
         }
         ctx.fillStyle = orbGrad;
         ctx.fill();
-        ctx.strokeStyle = "#FFFFFF";
-        ctx.lineWidth = 1.8;
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.85)";
+        ctx.lineWidth = 1.6;
         ctx.stroke();
 
         // Node Label Tag
         ctx.fillStyle = "#FFFFFF";
-        ctx.font = isSelf ? "bold 13px sans-serif" : "12px sans-serif";
+        ctx.font = isSelf ? "bold 14.5px sans-serif" : "13.5px sans-serif";
         const labelText = `${pos.name || nodeId}${isSelf ? " (You)" : ""}`;
-        ctx.fillText(labelText, projected.px + rad + 6, projected.py + 4);
+        ctx.fillText(labelText, projected.px + rad + 8, projected.py + 4);
 
         // 3D Coordinates Text (X, Y, Z)
-        ctx.fillStyle = "rgba(240, 244, 252, 0.7)";
-        ctx.font = "11px monospace";
-        ctx.fillText(`(${pos.x.toFixed(2)}m, ${pos.y.toFixed(2)}m, z:${z.toFixed(1)}m)`, projected.px + rad + 6, projected.py + 18);
+        ctx.fillStyle = "rgba(240, 244, 252, 0.75)";
+        ctx.font = "12.5px monospace";
+        ctx.fillText(`(${pos.x.toFixed(2)}m, ${pos.y.toFixed(2)}m, z:${z.toFixed(1)}m)`, projected.px + rad + 8, projected.py + 20);
       });
 
       // Empty State Overlay
       if (nodeEntries.length === 0) {
-        ctx.fillStyle = "rgba(240, 244, 252, 0.7)";
-        ctx.font = "bold 15px sans-serif";
+        ctx.fillStyle = "rgba(240, 244, 252, 0.85)";
+        ctx.font = "bold 16px sans-serif";
         ctx.textAlign = "center";
         ctx.fillText("Waiting for acoustic 3D spatial localization round...", centerX, centerY - 15);
-        ctx.font = "13px sans-serif";
-        ctx.fillStyle = "rgba(240, 244, 252, 0.45)";
-        ctx.fillText("Click '⚡ Simulate 3D Multi-Floor Plot' below for instant 3D spatial plot", centerX, centerY + 12);
+        ctx.font = "14px sans-serif";
+        ctx.fillStyle = "rgba(240, 244, 252, 0.6)";
+        ctx.fillText("Click '⚡ Simulate 3D Multi-Floor Plot' below for instant 3D spatial plot", centerX, centerY + 14);
         ctx.textAlign = "left";
       }
 
       // 3D Orbit Compass Badge
-      ctx.fillStyle = "rgba(255, 255, 255, 0.6)";
-      ctx.font = "11px monospace";
-      ctx.fillText(`3D View: Yaw ${Math.round(yawAngle)}° | Pitch ${Math.round(pitchAngle)}°`, 16, height - 16);
+      ctx.fillStyle = "rgba(255, 255, 255, 0.75)";
+      ctx.font = "12.5px monospace";
+      ctx.fillText(`3D View: Yaw ${Math.round(currentYaw)}° | Pitch ${Math.round(currentPitch)}°`, 16, height - 16);
 
+      ctx.restore();
       animId = requestAnimationFrame(render);
     };
 
     render();
     return () => cancelAnimationFrame(animId);
-  }, [positionsData, selfId, yawAngle, pitchAngle, zoomScale]);
+  }, [selfId]);
 
   // Activate audio context & mic stream
   async function handleActivateAudio() {
@@ -422,10 +526,7 @@ export function EchoLocatePanel({ socket, selfId, selfName }) {
       {/* EchoLocate Header Banner */}
       <div className="echolocate-header">
         <div className="echolocate-title">
-          <h2>📡 EchoLocate — 3D Spatial Acoustic Positioning</h2>
-          <div className="echolocate-subtitle">
-            Time-Division Acoustic RTT Multilateration · GPS-Free 3D Spatial Radar Canvas
-          </div>
+          <h2>📡 EvoSense</h2>
         </div>
 
         {/* Status Indicators */}
@@ -458,11 +559,6 @@ export function EchoLocatePanel({ socket, selfId, selfName }) {
         </div>
       </div>
 
-      {/* Constraints Note */}
-      <div className="echolocate-notice">
-        <span>ℹ️ <strong>3D Spatial Design Note:</strong> Audio-only relative multilateration (v_sound = 343 m/s). Computes (X, Y, Z) coordinates with ground drop shadow projections, height laser tethers, and 3D distance vectors.</span>
-      </div>
-
       {/* Control Bar */}
       <div className="echolocate-controls">
         <div className="control-group">
@@ -482,7 +578,7 @@ export function EchoLocatePanel({ socket, selfId, selfName }) {
             ↻ Run 3D Round
           </button>
 
-          <button className="secondary-btn" style={{ borderColor: "#33D6A6", color: "#33D6A6", fontWeight: 700 }} onClick={handleSimulateDemo3D}>
+          <button className="secondary-btn" style={{ borderColor: "var(--accent-primary)", color: "var(--accent-primary)", fontWeight: 700 }} onClick={handleSimDemo3D => handleSimulateDemo3D()}>
             ⚡ Simulate 3D Multi-Floor Plot
           </button>
         </div>
@@ -499,8 +595,6 @@ export function EchoLocatePanel({ socket, selfId, selfName }) {
         </div>
       </div>
 
-
-
       {/* Insecure Context Alert */}
       {isLocalIpInsecure && (
         <div className="echolocate-error-banner" style={{ background: "rgba(240, 166, 60, 0.15)", color: "#F0A63C", borderColor: "rgba(240, 166, 60, 0.3)" }}>
@@ -509,35 +603,76 @@ export function EchoLocatePanel({ socket, selfId, selfName }) {
         </div>
       )}
 
-      {/* 3D Radar Canvas Container with Floating Glass HUD Controls */}
+      {/* 3D Radar Canvas Container */}
       <div className="canvas-wrapper">
         {/* Floating Top-Left HUD Zoom & Camera Control Widget */}
         <div className="canvas-hud-controls top-left">
           <div className="hud-group">
             <span className="hud-title">🔍 3D CAMERA ZOOM</span>
             <div className="hud-zoom-buttons">
-              <button className="hud-btn" title="Zoom In (+)" onClick={() => setZoomScale(z => Math.min(130, z + 10))}>
+              <button
+                className="hud-btn"
+                title="Zoom In (+)"
+                onClick={() => {
+                  const next = Math.min(130, zoomScaleRef.current + 10);
+                  zoomScaleRef.current = next;
+                  setZoomScale(next);
+                }}
+              >
                 +
               </button>
               <span className="hud-val">{zoomScale} <small>px/m</small></span>
-              <button className="hud-btn" title="Zoom Out (-)" onClick={() => setZoomScale(z => Math.max(25, z - 10))}>
+              <button
+                className="hud-btn"
+                title="Zoom Out (-)"
+                onClick={() => {
+                  const next = Math.max(25, zoomScaleRef.current - 10);
+                  zoomScaleRef.current = next;
+                  setZoomScale(next);
+                }}
+              >
                 −
               </button>
-              <button className="hud-btn reset" title="Reset 3D Camera View" onClick={() => { setZoomScale(65); setYawAngle(45); setPitchAngle(35); }}>
+              <button
+                className="hud-btn reset"
+                title="Reset 3D Camera View"
+                onClick={() => {
+                  const defaultZoom = typeof window !== "undefined" && window.innerWidth < 640 ? 44 : 65;
+                  zoomScaleRef.current = defaultZoom;
+                  yawRef.current = 45;
+                  pitchRef.current = 35;
+                  setZoomScale(defaultZoom);
+                }}
+              >
                 ↺ Reset View
               </button>
             </div>
           </div>
         </div>
 
-        {/* Floating Top-Right HUD Auto-Orbit Widget */}
-        <div className="canvas-hud-controls top-right">
-          <button className={`hud-orbit-btn ${autoRotate ? "active" : ""}`} onClick={() => setAutoRotate(r => !r)}>
-            {autoRotate ? "⏸ 3D Orbiting" : "▶ Start 3D Orbit"}
-          </button>
-        </div>
+        <canvas
+          ref={canvasRef}
+          className="radar-canvas"
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          onPointerLeave={handlePointerUp}
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
+          onWheel={handleWheel}
+          style={{ touchAction: "none", cursor: isDraggingRef.current ? "grabbing" : "grab" }}
+        />
+      </div>
 
-        <canvas ref={canvasRef} className="radar-canvas" />
+      {/* 3D Orbit Control Bar (Placed Below 3D View) */}
+      <div className="canvas-bottom-bar">
+        <button
+          className={`hud-orbit-btn ${autoRotate ? "active" : ""}`}
+          onClick={() => setAutoRotate(r => !r)}
+        >
+          {autoRotate ? "⏸ 3D Orbiting (Pause)" : "▶ Start 3D Orbit"}
+        </button>
       </div>
     </div>
   );

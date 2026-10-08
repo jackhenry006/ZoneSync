@@ -184,7 +184,7 @@ function PopupCard({ item, onDismiss, onReply, onExpandImage }) {
       <div className="msg-popup-card-header">
         <div className="msg-popup-badge-group">
           <span className={`msg-popup-urgency-badge level-${level}`}>
-            {level === "critical" ? "🚨 CRITICAL" : level === "elevated" ? "⚠️ ELEVATED" : "📩 DELIVERED"}
+            {level === "critical" ? "⚠ HIGH PRIORITY" : level === "elevated" ? "⚡ ATTENTION" : "✓ NORMAL"}
           </span>
           <span className={`msg-popup-crypto-badge ${lockTag.cls}`} title={lockTag.label}>
             {lockTag.icon} {lockTag.label}

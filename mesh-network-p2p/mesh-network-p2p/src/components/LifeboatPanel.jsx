@@ -259,10 +259,10 @@ export function LifeboatPanel() {
 
   const getPriorityColor = (p) => {
     switch (p) {
-      case "critical": return "#FF4B5C";
-      case "elevated": return "#F0A63C";
-      case "normal": return "#529CFF";
-      case "low": default: return "#33D6A6";
+      case "critical": return "#FF4D4D";
+      case "elevated": return "#FFB000";
+      case "normal": return "#38BDF8";
+      case "low": default: return "#22C55E";
     }
   };
 
@@ -454,15 +454,15 @@ export function LifeboatPanel() {
               <div className="q-sub">Score 50-79</div>
             </div>
 
-            <div className="queue-card" style={{ borderLeftColor: "#529CFF" }}>
+            <div className="queue-card" style={{ borderLeftColor: "#38BDF8" }}>
               <div className="q-label">Normal Queue (&lt; 30m)</div>
-              <div className="q-val" style={{ color: "#529CFF" }}>{queueStats.normal}</div>
+              <div className="q-val" style={{ color: "#38BDF8" }}>{queueStats.normal}</div>
               <div className="q-sub">Score 20-49</div>
             </div>
 
-            <div className="queue-card" style={{ borderLeftColor: "#33D6A6" }}>
+            <div className="queue-card" style={{ borderLeftColor: "#22C55E" }}>
               <div className="q-label">Low Priority (Audit Only)</div>
-              <div className="q-val" style={{ color: "#33D6A6" }}>{queueStats.low}</div>
+              <div className="q-val" style={{ color: "#22C55E" }}>{queueStats.low}</div>
               <div className="q-sub">Score &lt; 20</div>
             </div>
 

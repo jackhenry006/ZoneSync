@@ -41,11 +41,23 @@ export function MeshConsole() {
   const [text, setText] = useState("");
   const [activeHop, setActiveHop] = useState(null);
   const [linkMode, setLinkMode] = useState(false);
-  const [cloudUrl, setCloudUrl] = useState(() => import.meta.env.VITE_CLOUD_URL || import.meta.env.VITE_BACKEND_URL || window.location.origin);
-  const [cloudEnabled, setCloudEnabled] = useState(false);
+  const [cloudEnabled, setCloudEnabled] = useState(() => {
+    try {
+      return typeof window !== "undefined" && window.innerWidth <= 768;
+    } catch (e) {
+      return false;
+    }
+  });
+  const [cloudUrl, setCloudUrl] = useState("http://localhost:4002");
   const [cloudStatus, setCloudStatus] = useState({ synced: false, lastSync: null });
   const [aiVersion, setAiVersion] = useState(null);
-  const [locationEnabled, setLocationEnabled] = useState(false);
+  const [locationEnabled, setLocationEnabled] = useState(() => {
+    try {
+      return typeof window !== "undefined" && window.innerWidth <= 768;
+    } catch (e) {
+      return false;
+    }
+  });
   const [locationStatus, setLocationStatus] = useState({ status: "off" });
   const [cryptoStatus, setCryptoStatus] = useState({ secure: false, ready: false });
   const [identityCount, setIdentityCount] = useState(0);
@@ -80,6 +92,21 @@ export function MeshConsole() {
     };
   }, [recording]);
 
+  // Automatically select first destination peer by default
+  useEffect(() => {
+    const peers = graph.nodes.filter(n => n.id !== selfId);
+    if (peers.length > 0) {
+      setTarget(prev => {
+        if (!prev || !peers.some(p => p.id === prev)) {
+          return peers[0].id;
+        }
+        return prev;
+      });
+    } else {
+      setTarget("");
+    }
+  }, [graph.nodes, selfId]);
+
   function handleJoin(customName) {
     const finalName = (customName || name || "").trim();
     if (!finalName) return;
@@ -89,6 +116,15 @@ export function MeshConsole() {
       sessionStorage.setItem("mesh_node_name", finalName);
       sessionStorage.setItem("mesh_joined", "true");
     } catch (e) {}
+    if (typeof window !== "undefined" && window.innerWidth <= 768) {
+      setSidebarOpen(false);
+      setCloudEnabled(true);
+      setLocationEnabled(true);
+      if (meshRef.current) {
+        meshRef.current.setCloudSync(cloudUrl, true);
+        meshRef.current.setLocationSharing(true);
+      }
+    }
     setJoined(true);
   }
 
@@ -197,6 +233,12 @@ export function MeshConsole() {
     });
     meshRef.current = mesh;
     mesh.register();
+    if (cloudEnabled || (typeof window !== "undefined" && window.innerWidth <= 768)) {
+      mesh.setCloudSync(cloudUrl, true);
+    }
+    if (locationEnabled || (typeof window !== "undefined" && window.innerWidth <= 768)) {
+      mesh.setLocationSharing(true);
+    }
     setOnline(true);
 
     return () => {
@@ -207,9 +249,12 @@ export function MeshConsole() {
 
   const [sidebarOpen, setSidebarOpen] = useState(() => {
     try {
+      if (typeof window !== "undefined" && window.innerWidth <= 768) {
+        return false;
+      }
       return localStorage.getItem("mesh_sidebar_open") !== "false";
     } catch (e) {
-      return true;
+      return typeof window !== "undefined" && window.innerWidth > 768;
     }
   });
 
@@ -610,7 +655,7 @@ export function MeshConsole() {
 
   const otherKnownNodes = graph.nodes.filter(n => n.id !== selfId);
   const liveTerms = meshRef.current ? meshRef.current.aiTerms : URGENT_TERMS;
-  const urgencyPreview = text.trim() ? classifyUrgency(text, liveTerms).level : null;
+  const urgencyPreview = text.trim() ? classifyUrgency(text, liveTerms) : null;
 
   if (!joined) {
     return <JoinModal name={name} setName={setName} onJoin={handleJoin} defaultMode="/" />;
@@ -666,6 +711,7 @@ export function MeshConsole() {
         onClearAll={handleClearAllPopups}
         onReply={handleReplyToSender}
       />
+
       {/* Mobile Backdrop overlay when sidebar is open on small screens */}
       {sidebarOpen && (
         <div
@@ -743,7 +789,7 @@ export function MeshConsole() {
           </div>
         </div>
 
-        <div className="hint" style={{ fontSize: 13.5, padding: "8px 14px" }}>
+        <div className="hint" style={{ fontSize: 14.5, padding: "10px 16px" }}>
           {linkMode
             ? "🔗 Click a node to open/close a direct WebRTC link (only your own links)"
             : "Live topology — learned by gossip, every node computes its own routes locally"}
@@ -756,10 +802,10 @@ export function MeshConsole() {
           onNodeClick={handleNodeClick}
           linkMode={linkMode}
         />
-        <div className="legend" style={{ fontSize: 12.5, gap: 14 }}>
-          <span><i style={{ background: "#33D6A6", boxShadow: "0 0 6px rgba(51,214,166,0.5)" }}></i>normal</span>
-          <span><i style={{ background: "#F0A63C", boxShadow: "0 0 6px rgba(240,166,60,0.5)" }}></i>elevated</span>
-          <span><i style={{ background: "#FF4B5C", boxShadow: "0 0 6px rgba(255,75,92,0.5)" }}></i>critical</span>
+        <div className="legend" style={{ fontSize: 13.5, gap: 16 }}>
+          <span><i style={{ background: "#22C55E" }}></i>NORMAL</span>
+          <span><i style={{ background: "#FFB000" }}></i>ATTENTION</span>
+          <span><i style={{ background: "#FF4D4D" }}></i>HIGH PRIORITY</span>
         </div>
       </div>
       <Composer

@@ -87,9 +87,9 @@ export function PulseSeekerPanel({ meshNode }) {
       {/* PulseSeeker Header */}
       <div className="pulseseeker-header">
         <div className="pulseseeker-title">
-          <h2>🆘 PulseSeeker — AI Passive Victim Detection</h2>
+          <h2>🆘 InertiaSense — AI Passive Victim Detection</h2>
           <div className="pulseseeker-subtitle">
-            Zero-Interaction Disaster Rescue · Acoustic Tapping & Inertia Monitoring
+            Acoustic Tapping & Inertia Monitoring
           </div>
         </div>
 
@@ -103,7 +103,7 @@ export function PulseSeekerPanel({ meshNode }) {
         </div>
       </div>
 
-      {/* Core Design & Disaster Rescue Note */}
+      {/* Core Design & Passive Rescue Note */}
       <div className="pulseseeker-notice">
         ℹ️ <strong>Passive Detection System:</strong> Designed for unconscious or trapped survivors who cannot press SOS buttons or call for help. Uses browser sensors (Web Audio MFCC/rhythm analysis + DeviceMotion accelerometer) to continuously listen for 2–4 Hz tapping on walls/debris and detect prolonged stillness.
       </div>
@@ -113,7 +113,7 @@ export function PulseSeekerPanel({ meshNode }) {
         <div className="pulseseeker-warning">
           🔒 <strong>Browser Security Constraint (Local IP Access):</strong><br />
           You are opening over HTTP local IP (<code>{window.location.host}</code>). Browsers disable microphone access on HTTP over local IP.<br />
-          <em>Use the <strong>"⚡ Disaster Simulation Suite"</strong> buttons below to test tapping detection, inertia alerts, and P2P mesh auto-beacons!</em>
+          <em>Use the <strong>"⚡ Simulation Suite"</strong> buttons below to test tapping detection, inertia alerts, and P2P mesh auto-beacons!</em>
         </div>
       )}
 
@@ -155,35 +155,61 @@ export function PulseSeekerPanel({ meshNode }) {
         <div className="telemetry-grid">
           {/* Tapping Confidence Card */}
           <div className="metric-card">
-            <div className="metric-label">Rhythmic Tapping Pattern</div>
-            <div className="metric-value" style={{ color: tappingPct > 70 ? "#FF4B5C" : "#33D6A6" }}>
+            <div className="metric-label">Acoustic Vibration & Tapping Pattern</div>
+            <div
+              className="metric-value"
+              style={{
+                color: tappingPct > 70 ? "#FF4D4D" : tappingPct > 30 ? "#FFB000" : "#22C55E"
+              }}
+            >
               {tappingPct}%
             </div>
             <div className="progress-bar">
-              <div className="progress-fill" style={{ width: `${tappingPct}%`, background: tappingPct > 70 ? "#FF4B5C" : "#33D6A6" }} />
+              <div
+                className="progress-fill"
+                style={{
+                  width: `${tappingPct}%`,
+                  background: tappingPct > 70 ? "#FF4D4D" : tappingPct > 30 ? "#FFB000" : "#22C55E"
+                }}
+              />
             </div>
-            <div className="metric-sub">Detects 2-4 Hz periodic taps on walls/debris</div>
+            <div className="metric-sub">
+              {tappingPct > 70 ? "[!] HIGH-PRIORITY ANOMALY" : tappingPct > 30 ? "[!] UNUSUAL ACTIVITY" : "[✓] NORMAL ACTIVITY"} · 2–4 Hz periodic cadence
+            </div>
           </div>
 
           {/* Inertia / Motionlessness Card */}
           <div className="metric-card">
-            <div className="metric-label">Inertia / Unconsciousness Timer</div>
-            <div className="metric-value" style={{ color: telemetry.stillnessSec > 300 ? "#FF4B5C" : "#529CFF" }}>
+            <div className="metric-label">Inertia & Immobility Timer</div>
+            <div
+              className="metric-value"
+              style={{
+                color: telemetry.stillnessSec > 300 ? "#FF4D4D" : telemetry.stillnessSec > 120 ? "#FFB000" : "#22C55E"
+              }}
+            >
               {telemetry.stillnessSec}s
             </div>
             <div className="progress-bar">
-              <div className="progress-fill" style={{ width: `${Math.min(100, (telemetry.stillnessSec / 300) * 100)}%`, background: "#529CFF" }} />
+              <div
+                className="progress-fill"
+                style={{
+                  width: `${Math.min(100, (telemetry.stillnessSec / 300) * 100)}%`,
+                  background: telemetry.stillnessSec > 300 ? "#FF4D4D" : telemetry.stillnessSec > 120 ? "#FFB000" : "#22C55E"
+                }}
+              />
             </div>
-            <div className="metric-sub">Monitors complete stillness (&gt;5 mins = unconscious alert)</div>
+            <div className="metric-sub">
+              {telemetry.stillnessSec > 300 ? "[!] HIGH-PRIORITY IMMOBILITY" : telemetry.stillnessSec > 120 ? "[!] UNUSUAL PROLONGED STILLNESS" : "[✓] NORMAL MOTION DETECTED"}
+            </div>
           </div>
 
           {/* Environmental Classification Card */}
           <div className="metric-card">
-            <div className="metric-label">Environmental Classifier</div>
-            <div className="metric-value" style={{ fontSize: "20px", color: "#F0A63C" }}>
+            <div className="metric-label">Spatial Enclosure Classifier</div>
+            <div className="metric-value" style={{ fontSize: "20px", color: "#FFB000" }}>
               {telemetry.environment.toUpperCase()}
             </div>
-            <div className="metric-sub">Identifies basement, rooftop, or collapsed structure based on acoustic damping & sensor proxies</div>
+            <div className="metric-sub">Classified via acoustic damping profile & browser sensor proxies</div>
           </div>
 
           {/* Spectral Sub-band Energies Visualizer */}
@@ -192,7 +218,13 @@ export function PulseSeekerPanel({ meshNode }) {
             <div className="bars-container">
               {telemetry.features.slice(0, 15).map((val, idx) => (
                 <div key={idx} className="bar-wrapper">
-                  <div className="bar-fill" style={{ height: `${Math.min(100, val * 100)}%` }} />
+                  <div
+                    className="bar-fill"
+                    style={{
+                      height: `${Math.min(100, val * 100)}%`,
+                      background: "linear-gradient(to top, #FF8A00, #FFB000)"
+                    }}
+                  />
                 </div>
               ))}
             </div>
@@ -200,10 +232,10 @@ export function PulseSeekerPanel({ meshNode }) {
         </div>
       )}
 
-      {/* Tab 2: Survivor Beacons Feed */}
+      {/* Tab 2: Beacons Feed */}
       {activeTab === "beacons" && (
         <div className="beacons-feed">
-          <h3>🆘 Emergency Survivor Beacons Received ({beacons.length})</h3>
+          <h3>⚡ Priority Signal Beacons Received ({beacons.length})</h3>
 
           {beacons.length === 0 ? (
             <div className="empty-beacons">

@@ -1,51 +1,85 @@
-# 🌐 MeshGrid P2P & Disaster Rescue Suite (v3.0)
-> **Serverless-Resilient P2P Mesh Network with On-Device AI, End-to-End Encryption, Acoustic Indoor Positioning (EchoLocate), Passive Victim Detection (PulseSeeker), and Lifeboat Priority Routing.**
+# 🌐 ZoneSync
+> **Connect · Sense · Locate · Prioritize** — An Intelligent Indoor Operations & Coordination Platform
 
 ---
 
 ## 📌 Table of Contents
 1. [Overview: What is Happening?](#-1-overview-what-is-happening)
-2. [Key Features](#-2-key-features)
+2. [Key Features & System Architecture](#-2-key-features--system-architecture)
 3. [Technologies & Architecture Used](#-3-technologies--architecture-used)
 4. [How It Works: Deep-Dive Technical Mechanics](#-4-how-it-works-deep-dive-technical-mechanics)
 5. [Complete Command Reference](#-5-complete-command-reference)
-6. [Step-by-Step Demo Pitch for Judges](#-6-step-by-step-demo-pitch-for-judges)
+6. [Step-by-Step Demo Guide](#-6-step-by-step-demo-guide)
 7. [API & Endpoint Reference](#-7-api--endpoint-reference)
 8. [Limitations & Production Roadmap](#-8-limitations--production-roadmap)
 
 ---
 
-## 🌍 1. Overview: What is Happening?
+## 🏢 1. Overview: What is Happening?
 
-In disasters such as earthquakes, building collapses, floods, and severe grid failures, traditional communications collapse in two catastrophic ways:
-1. **Infrastructure Blackout**: Cell towers lose power, fiber backbones sever, and internet access disappears.
-2. **Victim Silence**: Trapped, pinned, or unconscious victims cannot press SOS buttons, unlock phones, or speak.
+In large or complex indoor environments—such as **university campuses, industrial warehouses, exhibition venues, multi-story corporate facilities, and transport hubs**—traditional communication and positioning infrastructure encounters severe operational challenges:
+1. **Connectivity Dead Zones**: Basements, metal-clad facilities, and dense structural walls frequently cause Wi-Fi drops and cellular blackouts.
+2. **GPS Blind Spots**: Satellite positioning cannot penetrate concrete ceilings or multi-tier floors to provide indoor location awareness.
+3. **Information Overload & Triage**: Operators need immediate, automated prioritization when personnel require assistance or operational anomalies occur.
 
-### What MeshGrid Does
-MeshGrid transforms standard smartphones, tablets, and laptops into a **self-healing, zero-install, decentralized rescue mesh**.
-- Devices discover each other locally and form **serverless WebRTC data channels**.
-- Messages, voice notes, photos, and GPS coordinates route **hop-by-hop** across devices without requiring internet or cellular service.
-- If the signaling server dies after initial handshake, the **P2P mesh continues operating independently**.
-- When victims cannot move, **PulseSeeker** passively monitors ambient audio (rhythmic debris tapping) and motion sensors (unconscious stillness) to auto-dispatch emergency survivor beacons.
-- When GPS is blocked by concrete rubble, **EchoLocate** calculates indoor 2D positions using ultrasonic acoustic chirps and multilateration.
-- The **Lifeboat Engine** scores multi-sensor lethality (0–100) and routes critical cases to the front of rescue queues.
+### What ZoneSync Does
+ZoneSync transforms standard smartphones, tablets, and laptops into a **self-healing, zero-install, decentralized indoor coordination platform**.
+- **ConnectX**: Devices discover each other locally and establish **serverless WebRTC peer-to-peer data channels** to route messages, telemetry, voice notes, and media hop-by-hop.
+- **InertiaSense**: Employs on-device acoustic and motion monitoring to automatically recognize activity patterns and flag prolonged inactivity.
+- **EvoSense**: Calculates relative indoor spatial positions using ultrasonic acoustic chirps and multilateration without requiring GPS or external beacons.
+- **AI Priority Engine**: Analyzes real-time text, voice, and sensor signals locally to classify and triage events into intelligent priority streams.
+- **Coordination Dashboard**: Delivers a unified operational overview of connected devices, active zones, spatial coordinates, and prioritized alerts.
+
+```
+ConnectX              InertiaSense              EvoSense
+   ↓                       ↓                       ↓
+Communication      Activity Awareness      Spatial Awareness
+   └───────────────────────┬───────────────────────┘
+                           ↓
+                   AI Priority Engine
+                           ↓
+                     Prioritization
+                           ↓
+                 Coordination Dashboard
+                 (Operator / User View)
+```
 
 ---
 
-## ✨ 2. Key Features
+## ✨ 2. Key Features & System Architecture
 
-| Feature | Description |
-|---|---|
-| 📡 **Serverless P2P Mesh Routing** | Multi-hop encrypted routing using local Dijkstra shortest-path algorithms and gossip topology adverts over WebRTC data channels. |
-| 🔒 **End-to-End Encryption (E2EE)** | On-device ECDH (P-256) key exchange + AES-256-GCM payload encryption + ECDSA (P-256) digital signatures. Relays carry only opaque ciphertext. |
-| 🤖 **On-Device AI Urgency Classifier** | In-browser NLP urgency classification that tags messages as `CRITICAL`, `ELEVATED`, or `NORMAL` without sending data to the cloud. |
-| 🎤 **Encrypted Voice Notes** | Mobile & desktop audio micro-recording (Opus/AAC/MP4) with automatic transmission upon completion and inline playback. |
-| 🖼️ **Encrypted Image Notes** | Canvas-based image compression (`maxDim = 800px`, JPEG quality 0.6) with automatic chunking, chunk progress tracking, and fallback. |
-| 📍 **GPS Location Broadcast** | Broadcasts live device coordinates with Google Maps links across the entire mesh with one click. |
-| 🔊 **EchoLocate (Acoustic 2D Radar)** | Plots relative indoor (x, y) coordinates without GPS or WiFi using 17–19 kHz ultrasonic LFM chirps and 2D least-squares multilateration. |
-| 🛡️ **PulseSeeker (Passive Victim Detection)** | 100% offline TinyML that listens for rhythmic pipe tapping (2–4 Hz) and detects prolonged unconscious stillness (>5 min), auto-dispatching SOS beacons. |
-| ⚖️ **Lifeboat Priority Routing** | Multi-sensor lethality calculator and 4-tier priority queue (`critical`, `elevated`, `normal`, `low`) for first responders. |
-| ☁️ **Opportunistic Cloud Sync** | Opt-in telemetry sync and real-time remote AI keyword model distribution when internet is intermittently available. |
+### Key Capabilities
+
+| Feature | Description | Status |
+|---|---|---|
+| 📡 **ConnectX** | Decentralized, local peer-to-peer device communication and multi-hop routing using Dijkstra shortest-path algorithms over WebRTC data channels. | ✅ Implemented |
+| 📍 **EvoSense** | Indoor spatial sensing and acoustic positioning canvas that calculates relative coordinates using ultrasonic LFM chirps and multilateration. | ✅ Implemented |
+| 📊 **InertiaSense** | Activity and unusual inactivity detection layer utilizing device motion and acoustic feature analysis to detect anomalies. | ✅ Implemented |
+| 🤖 **AI Priority Engine** | In-browser NLP urgency classification that tags messages and events (`CRITICAL`, `ELEVATED`, `NORMAL`) locally without cloud dependencies. | ✅ Implemented |
+| 📱 **Coordination Dashboard** | Central operational interface providing live visibility into connected nodes, dynamic network topology, spatial maps, and priority streams. | ✅ Implemented |
+| 🔒 **End-to-End Encryption (E2EE)** | On-device ECDH (P-256) key exchange + AES-256-GCM payload encryption + ECDSA digital signatures for tamper-proof coordination. | ✅ Implemented |
+| 🎤 **Encrypted Voice Notes** | In-browser audio recording (Opus/AAC/MP4) with automatic chunking, mesh transmission, and inline playback. | ✅ Implemented |
+| 🖼️ **Encrypted Image Transmission** | Dynamic canvas-based image downsampling and sequential chunked transfer across the P2P mesh. | ✅ Implemented |
+| 📍 **Location Broadcast** | One-click broadcast of indoor coordinates and geospatial references across all mesh peers. | ✅ Implemented |
+| ☁️ **Opportunistic Cloud Sync** | Opt-in background telemetry sync and remote AI model distribution when internet access is intermittently available. | ✅ Implemented |
+
+### High-Level Architecture Flowchart
+
+```mermaid
+flowchart TD
+    A[User / Device] --> B[ZoneSync Interface]
+
+    B --> C[ConnectX]
+    B --> D[InertiaSense]
+    B --> E[EvoSense]
+
+    C --> F[Coordination Layer]
+    D --> F
+    E --> F
+
+    F --> G[AI Priority Engine]
+    G --> H[Dashboard / Operational View]
+```
 
 ---
 
@@ -89,7 +123,7 @@ MeshGrid transforms standard smartphones, tablets, and laptops into a **self-hea
 
 ```
                    +---------------------------------------+
-                   |       MeshGrid Node (Browser)         |
+                   |       Central Node (Browser)          |
                    |                                       |
                    |  +---------------------------------+  |
                    |  |      UI / Composer / Canvas     |  |
@@ -143,30 +177,20 @@ MeshGrid transforms standard smartphones, tablets, and laptops into a **self-hea
 3. Chunks stream across WebRTC data channels with sequence numbers (`chunkIndex / totalChunks`).
 4. The destination reassembles and verifies the chunks, rendering an inline audio player with one-tap playback.
 
-### 4. EchoLocate Acoustic Positioning
+### 4. EvoSense Acoustic Positioning
 1. Because browser clocks are unsynchronized, EchoLocate implements **Time-Division Acoustic Round-Trip Time (RTT)**.
 2. Pinger Device emits an ultrasonic 17–19 kHz Linear Frequency Modulated (LFM) chirp.
 3. Listener devices detect the chirp using **Matched-Filter Cross-Correlation** and reply at scheduled time offsets.
 4. The Pinger calculates pairwise distances: $d = \frac{\Delta T_{\text{RTT}} - \text{offset}}{2} \times 343\text{ m/s}$.
 5. A 2D least-squares multilateration algorithm converts distances into relative $(x, y)$ coordinates and plots them on the radar canvas.
 
-### 5. PulseSeeker Passive Survivor Detection
+### 5. IntertiaSense Passive Survivor Detection
 1. Runs background feature extraction: 13 MFCC sub-bands, Zero-Crossing Rate (ZCR), Spectral Centroids, and accelerometer variance.
 2. A 2-layer in-browser neural matrix evaluates signals against:
    - **Rhythmic Pipe/Wall Tapping**: 2–4 Hz peak periodicity with high high-frequency harmonics.
    - **Inertial Unconsciousness**: Accelerometer variance $< 0.02\text{ m/s}^2$ for $> 5\text{ minutes}$.
 3. When detection confidence exceeds 80%, PulseSeeker automatically constructs an SOS beacon and broadcasts it across the mesh.
 
-### 6. Lifeboat Lethality Scoring & Rescuer Queue
-1. Ingests multi-sensor telemetry at `POST /api/heartbeat`.
-2. Computes lethality score (0–100):
-   - Sudden Barometer Drop ($>5\text{ hPa/min}$): **+50 pts**
-   - Ambient Darkness ($<5\text{ lux}$): **+30 pts**
-   - Injury Keywords (*bleeding, trapped, crushed*): **+25 pts**
-   - Flood Keywords (*water rising, drowning*): **+20 pts**
-   - Vulnerable Person (*infant, pregnant, elderly*): **+15 pts**
-   - Water Proximity / Low Battery: **+10–15 pts**
-3. Enqueues critical survivors ($\ge 80\text{ pts}$) at the top of the priority queue for instant rescuer deployment.
 
 ---
 
@@ -191,42 +215,34 @@ npm run start:cloud
 # 3. Start Standalone EchoLocate Server (Port 4003)
 npm run start:echolocate
 
-# 4. Start Lifeboat Priority Queue Server (Port 4004)
-npm run start:lifeboat
 
-# 5. Run Automated Lifeboat & Queue Stress Test Suite
-npm run test:lifeboat
-
-# 6. Launch Frontend Dev Server (Port 3000 / HTTPS Network Access)
+# 5. Launch Frontend Dev Server (Port 3000 / HTTPS Network Access)
 npm run dev -- --host
 
-# 7. Production Build
+# 6. Production Build
 npm run build
 ```
 
 ---
 
-## 🎬 6. Step-by-Step Demo Pitch for Judges
+## 🎬 6. Step-by-Step Demo Guide
 
-1. **Serverless Resilience**:
+1. **Serverless Resilience (ConnectX)**:
    - Open 3 browser windows on `https://localhost:3000/`. Join as *Alpha*, *Beta*, and *Gamma*.
    - Show direct WebRTC links in the visual topology canvas.
    - **Kill the signaling server in terminal (`Ctrl+C`)**. Send messages between tabs to demonstrate **100% serverless peer-to-peer routing**.
 
 2. **On-Device AI Urgency & Media Notes**:
-   - Type `"trapped under heavy debris, bleeding heavily"`. Show real-time **🔴 CRITICAL** AI tag.
+   - Type `"urgent equipment malfunction in sector 4, immediate inspection required"`. Show real-time **🔴 CRITICAL** AI tag.
    - Click **`🎤 Voice Note`**, record audio, and click **`⏹ Stop & Send`**. Show instant delivery and playback on the other peer.
    - Click **`🖼️ Image Note`**, pick a photo, and watch chunk progress stream and render.
 
-3. **EchoLocate Indoor Positioning**:
-   - Open `/echolocate`, click **`⚡ Simulate Demo Plot`**, and view the 2D acoustic radar map with relative distance vectors.
+3. **EvoSense Indoor Spatial Positioning**:
+   - Open `/echolocate`, click **`⚡ Simulate Demo Plot`**, and view the 2D/3D acoustic radar map with relative distance vectors.
 
-4. **PulseSeeker Passive Victim Detection**:
+4. **InertiaSense Activity & Inactivity Detection**:
    - Open `/pulseseeker`, click **`🛡️ Activate Passive Detection Sensors`**, then click **`🔨 Simulate Tapping (3.2 Hz)`**.
-   - Watch tapping confidence hit **94%** and auto-broadcast a survivor beacon across the mesh!
-
-5. **Lifeboat Priority Routing**:
-   - Run `npm run test:lifeboat` or view `/lifeboat` to showcase the 100/100 multi-sensor lethality score and prioritized rescue dispatch queue.
+   - Watch activity confidence hit **94%** and auto-broadcast a priority beacon across the mesh!
 
 ---
 
@@ -234,22 +250,23 @@ npm run build
 
 | Endpoint | Method | Port | Description |
 |---|---|---|---|
-| `/socket.io` | WS / HTTP | 4001 | WebRTC signaling & EchoLocate socket handlers |
+| `/socket.io` | WS / HTTP | 4001 | WebRTC signaling & EvoSense socket handlers |
 | `/sync` | POST | 4002 | Opportunistic cloud telemetry sync |
 | `/model` | GET / POST | 4002 | AI classifier model distribution & updates |
-| `/echolocate-api/status` | GET | 4003 | EchoLocate server status & active round metrics |
-| `/api/auto-beacon` | POST | 4001 / 4004 | Ingests PulseSeeker passive survivor beacons |
-| `/api/heartbeat` | POST | 4004 | Lifeboat multi-sensor lethality scoring & enqueuing |
-| `/api/priority/queue` | GET | 4004 | Returns queue metrics & next critical messages |
+| `/echolocate-api/status` | GET | 4003 | EvoSense server status & active round metrics |
+| `/api/auto-beacon` | POST | 4001 / 4004 | Ingests InertiaSense automated priority beacons |
+| `/api/heartbeat` | POST | 4004 | Multi-sensor telemetry scoring & priority enqueuing |
+| `/api/priority/queue` | GET | 4004 | Returns queue metrics & next high-priority messages |
 | `/api/priority/critical` | GET | 4004 | Returns all active critical messages with coordinates |
-| `/api/alert/send` | POST | 4004 | Triggers emergency alert dispatch for critical queue |
+| `/api/alert/send` | POST | 4004 | Triggers priority alert dispatch for critical queue |
 | `/api/priority/stats` | GET | 4004 | Returns detailed queue stats & throughput trends |
 
 ---
 
 ## 💡 8. Limitations & Production Roadmap
 
-- **Acoustic Attenuation**: High-frequency acoustic chirps (17–19 kHz) attenuate through thick concrete walls. EchoLocate exposes configurable frequency ranges (e.g. 15–18 kHz) for real-device hardware tuning.
-- **Mobile HTTPS Sandbox**: Mobile browsers require HTTPS for microphone and motion sensors. MeshGrid includes built-in SSL support (`@vitejs/plugin-basic-ssl`) for seamless local Wi-Fi testing.
+- **Acoustic Attenuation**: High-frequency acoustic chirps (17–19 kHz) attenuate through dense structural walls. EvoSense exposes configurable frequency ranges (e.g. 15–18 kHz) for real-device hardware tuning.
+- **Mobile HTTPS Sandbox**: Mobile browsers require HTTPS for microphone and motion sensors. ZoneSync includes built-in SSL support (`@vitejs/plugin-basic-ssl`) for seamless local Wi-Fi testing.
 - **Time-Division Interval**: Acoustic positioning uses discrete 15-second time-division rounds to avoid clock sync issues without requiring GPS time servers.
-- **PKI Fingerprint Roadmap**: Session keypairs are generated per browser session. Production deployments can pre-provision device fingerprints via QR-code pairing prior to field operations.
+- **PKI Fingerprint Roadmap**: Session keypairs are generated per browser session. Production deployments can pre-provision device fingerprints via QR-code pairing prior to operational deployment.
+

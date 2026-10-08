@@ -58,7 +58,7 @@ export function CloudDashboard() {
       {/* Top Header Bar */}
       <div className="topbar">
         <div className="brand">
-          <div className="mark" style={{ fontSize: 12, letterSpacing: "0.14em", marginBottom: 6 }}>CRISISLINK // COMMAND CENTER</div>
+          <div className="mark" style={{ fontSize: 12, letterSpacing: "0.14em", marginBottom: 6 }}>ZONESYNC // OPERATIONS CENTER</div>
           <h1 style={{ fontSize: 26, fontWeight: 800, margin: "2px 0 6px" }}>Cloud Monitoring & AI Operations</h1>
           <p style={{ fontSize: 14, color: "var(--muted)" }}>Remote telemetry aggregator + hot model distribution engine</p>
         </div>
@@ -76,7 +76,7 @@ export function CloudDashboard() {
         </div>
         <div className="stat-card">
           <div className="n">{s.totalSent ?? 0}</div>
-          <div className="l">Messages Sent</div>
+          <div className="l">Messages Routed</div>
         </div>
         <div className="stat-card">
           <div className="n">{s.totalDelivered ?? 0}</div>
@@ -84,7 +84,7 @@ export function CloudDashboard() {
         </div>
         <div className="stat-card crit">
           <div className="n">{s.criticalCount ?? 0}</div>
-          <div className="l">Critical (SOS) Traffic</div>
+          <div className="l">High Priority Traffic</div>
         </div>
         <div className="stat-card elev">
           <div className="n">{s.avgLatencyMs !== null && s.avgLatencyMs !== undefined ? `${s.avgLatencyMs}ms` : "—"}</div>

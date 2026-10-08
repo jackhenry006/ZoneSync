@@ -50,7 +50,7 @@ export function MeshCanvas({ nodes, links, activeHop, selfId, onNodeClick, linkM
 
     function drawGrid(w, h) {
       const spacing = 40;
-      ctx.strokeStyle = "rgba(30, 44, 60, 0.15)";
+      ctx.strokeStyle = "rgba(42, 48, 52, 0.4)";
       ctx.lineWidth = 0.5;
       for (let x = spacing; x < w; x += spacing) {
         ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke();
@@ -58,7 +58,7 @@ export function MeshCanvas({ nodes, links, activeHop, selfId, onNodeClick, linkM
       for (let y = spacing; y < h; y += spacing) {
         ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
       }
-      ctx.fillStyle = "rgba(50, 70, 90, 0.2)";
+      ctx.fillStyle = "rgba(127, 137, 145, 0.2)";
       for (let x = spacing; x < w; x += spacing) {
         for (let y = spacing; y < h; y += spacing) {
           ctx.beginPath(); ctx.arc(x, y, 1, 0, Math.PI * 2); ctx.fill();
@@ -80,20 +80,20 @@ export function MeshCanvas({ nodes, links, activeHop, selfId, onNodeClick, linkM
         const quality = Math.max(0, 1 - l.weight / 300);
         const pulse = 0.5 + Math.sin(t * 1.5 + l.weight * 0.01) * 0.2;
         const congestion = l.congestion || "normal";
-        const rgb = congestion === "congested" ? "255, 75, 92" : congestion === "watch" ? "240, 166, 60" : "51, 214, 166";
+        const rgb = congestion === "congested" ? "255, 77, 77" : congestion === "watch" ? "255, 176, 0" : "184, 192, 199";
 
-        ctx.strokeStyle = `rgba(${rgb}, ${0.04 + quality * 0.08 + (congestion !== "normal" ? 0.05 : 0)})`;
-        ctx.lineWidth = 6 + quality * 4 + (congestion === "congested" ? 2 : 0);
+        ctx.strokeStyle = `rgba(${rgb}, ${0.08 + quality * 0.12 + (congestion !== "normal" ? 0.08 : 0)})`;
+        ctx.lineWidth = 4 + quality * 3 + (congestion === "congested" ? 2 : 0);
         ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
 
-        ctx.strokeStyle = `rgba(${rgb}, ${(0.2 + quality * 0.4) * (0.8 + pulse * 0.2)})`;
-        ctx.lineWidth = 1 + quality * 1.5;
+        ctx.strokeStyle = `rgba(${rgb}, ${(0.3 + quality * 0.45) * (0.85 + pulse * 0.15)})`;
+        ctx.lineWidth = 1 + quality * 1.2;
         ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
 
         if (l.weight < 500) {
           const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
-          ctx.fillStyle = `rgba(${rgb}, ${0.5 + quality * 0.3})`;
-          ctx.font = "500 9px 'IBM Plex Mono', monospace";
+          ctx.fillStyle = `rgba(${rgb}, ${0.6 + quality * 0.3})`;
+          ctx.font = "500 11px 'IBM Plex Mono', monospace";
           ctx.textAlign = "center";
           const label = congestion === "normal" ? `${Math.round(l.weight)}ms` : `${Math.round(l.weight)}ms ⚠ ${congestion}`;
           ctx.fillText(label, mx, my - 6);
@@ -103,30 +103,24 @@ export function MeshCanvas({ nodes, links, activeHop, selfId, onNodeClick, linkM
       if (activeHop) {
         const a = posRef.current[activeHop.from], b = posRef.current[activeHop.to];
         if (a && b) {
-          const color = activeHop.urgency === "critical" ? "#FF4B5C" : activeHop.urgency === "elevated" ? "#F0A63C" : "#33D6A6";
-          const glowColor = activeHop.urgency === "critical" ? "rgba(255,75,92," : activeHop.urgency === "elevated" ? "rgba(240,166,60," : "rgba(51,214,166,";
+          const color = activeHop.urgency === "critical" ? "#FF4D4D" : "#FFB000";
+          const glowColor = activeHop.urgency === "critical" ? "rgba(255, 77, 77," : "rgba(255, 176, 0,";
           const prog = activeHop.progress;
           const px = a.x + (b.x - a.x) * prog, py = a.y + (b.y - a.y) * prog;
 
-          ctx.strokeStyle = glowColor + "0.15)";
-          ctx.lineWidth = 10;
+          ctx.strokeStyle = glowColor + "0.2)";
+          ctx.lineWidth = 8;
           ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
 
           ctx.strokeStyle = color;
-          ctx.lineWidth = 2.5;
-          ctx.shadowColor = color;
-          ctx.shadowBlur = 16;
+          ctx.lineWidth = 2.2;
           ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
-          ctx.shadowBlur = 0;
 
-          ctx.beginPath(); ctx.arc(px, py, 8, 0, Math.PI * 2);
-          ctx.fillStyle = glowColor + "0.2)"; ctx.fill();
-          ctx.beginPath(); ctx.arc(px, py, 5, 0, Math.PI * 2);
+          ctx.beginPath(); ctx.arc(px, py, 6, 0, Math.PI * 2);
+          ctx.fillStyle = glowColor + "0.3)"; ctx.fill();
+          ctx.beginPath(); ctx.arc(px, py, 4, 0, Math.PI * 2);
           ctx.fillStyle = color;
-          ctx.shadowColor = color;
-          ctx.shadowBlur = 20;
           ctx.fill();
-          ctx.shadowBlur = 0;
         }
       }
 
@@ -136,9 +130,9 @@ export function MeshCanvas({ nodes, links, activeHop, selfId, onNodeClick, linkM
         if (p.life <= 0 || p.progress > 1.2) return false;
         const px = p.x + (p.tx - p.x) * Math.max(0, p.progress);
         const py = p.y + (p.ty - p.y) * Math.max(0, p.progress);
-        const color = p.urgency === "critical" ? "255,75,92" : p.urgency === "elevated" ? "240,166,60" : "51,214,166";
-        ctx.beginPath(); ctx.arc(px, py, 2.5, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(${color}, ${p.life * 0.6})`;
+        const color = p.urgency === "critical" ? "255, 77, 77" : "255, 176, 0";
+        ctx.beginPath(); ctx.arc(px, py, 2, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(${color}, ${p.life * 0.7})`;
         ctx.fill();
         return true;
       });
@@ -151,53 +145,48 @@ export function MeshCanvas({ nodes, links, activeHop, selfId, onNodeClick, linkM
 
         if (!n.alive) {
           ctx.beginPath(); ctx.arc(p.x, p.y, nodeRadius, 0, Math.PI * 2);
-          ctx.fillStyle = "#111820";
-          ctx.strokeStyle = "#2A3542";
+          ctx.fillStyle = "#1B1F22";
+          ctx.strokeStyle = "#2A3034";
           ctx.lineWidth = 1.5;
           ctx.fill(); ctx.stroke();
         } else {
           const pulse = 0.5 + Math.sin(t * 2 + p.x * 0.01) * 0.5;
 
-          ctx.beginPath(); ctx.arc(p.x, p.y, nodeRadius + 6 + pulse * 3, 0, Math.PI * 2);
-          ctx.fillStyle = isSelf ? "rgba(51, 214, 166, 0.04)" : "rgba(51, 214, 166, 0.02)";
-          ctx.fill();
-
-          ctx.beginPath(); ctx.arc(p.x, p.y, nodeRadius + 3, 0, Math.PI * 2);
-          ctx.fillStyle = isSelf ? "rgba(51, 214, 166, 0.08)" : "rgba(51, 214, 166, 0.03)";
+          ctx.beginPath(); ctx.arc(p.x, p.y, nodeRadius + 4 + pulse * 2, 0, Math.PI * 2);
+          ctx.fillStyle = isSelf ? "rgba(255, 176, 0, 0.06)" : "rgba(34, 197, 94, 0.03)";
           ctx.fill();
 
           ctx.beginPath(); ctx.arc(p.x, p.y, nodeRadius, 0, Math.PI * 2);
           if (isSelf) {
             const grad = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, nodeRadius);
-            grad.addColorStop(0, "#3AEDB8");
-            grad.addColorStop(1, "#28B890");
+            grad.addColorStop(0, "#FFC033");
+            grad.addColorStop(1, "#FFB000");
             ctx.fillStyle = grad;
+            ctx.strokeStyle = "#FF8A00";
+            ctx.lineWidth = 2;
           } else {
-            ctx.fillStyle = "#111D28";
+            ctx.fillStyle = "#1B1F22";
+            ctx.strokeStyle = `rgba(34, 197, 94, ${0.45 + pulse * 0.25})`;
+            ctx.lineWidth = 1.6;
           }
-          ctx.strokeStyle = isSelf ? "#33D6A6" : `rgba(51, 214, 166, ${0.35 + pulse * 0.25})`;
-          ctx.lineWidth = isSelf ? 2.5 : 1.5;
-          ctx.shadowColor = "#33D6A6";
-          ctx.shadowBlur = isSelf ? 14 : 4 + pulse * 4;
           ctx.fill(); ctx.stroke();
-          ctx.shadowBlur = 0;
 
           if (!isSelf) {
             ctx.beginPath(); ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
-            ctx.fillStyle = `rgba(51, 214, 166, ${0.5 + pulse * 0.3})`;
+            ctx.fillStyle = `rgba(34, 197, 94, ${0.65 + pulse * 0.3})`;
             ctx.fill();
           }
         }
 
-        ctx.fillStyle = n.alive ? "#E7EDF4" : "#3A4A5A";
-        ctx.font = `${isSelf ? 700 : 600} ${isSelf ? 12 : 11}px 'IBM Plex Mono', monospace`;
+        ctx.fillStyle = n.alive ? "#F5F7F8" : "#7F8991";
+        ctx.font = `${isSelf ? 700 : 600} ${isSelf ? 14 : 13}px 'Inter', sans-serif`;
         ctx.textAlign = "center";
         ctx.fillText(n.name, p.x, p.y + nodeRadius + 18);
 
         if (isSelf && n.alive) {
-          ctx.fillStyle = "rgba(51, 214, 166, 0.5)";
-          ctx.font = "700 8px 'IBM Plex Mono', monospace";
-          ctx.fillText("YOU", p.x, p.y + nodeRadius + 30);
+          ctx.fillStyle = "#FFB000";
+          ctx.font = "700 10.5px 'IBM Plex Mono', monospace";
+          ctx.fillText("YOU (ACTIVE)", p.x, p.y + nodeRadius + 32);
         }
       });
 

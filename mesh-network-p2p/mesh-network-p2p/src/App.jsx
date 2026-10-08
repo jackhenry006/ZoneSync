@@ -5,7 +5,6 @@ import { MeshConsole } from './pages/MeshConsole.jsx';
 import { CloudDashboard } from './pages/CloudDashboard.jsx';
 import { EchoLocateView } from './pages/EchoLocateView.jsx';
 import { PulseSeekerView } from './pages/PulseSeekerView.jsx';
-import { LifeboatView } from './pages/LifeboatView.jsx';
 
 export default function App() {
   return (
@@ -16,7 +15,6 @@ export default function App() {
           <Route path="/" element={<MeshConsole />} />
           <Route path="/echolocate" element={<EchoLocateView />} />
           <Route path="/pulseseeker" element={<PulseSeekerView />} />
-          <Route path="/lifeboat" element={<LifeboatView />} />
           <Route path="/dashboard" element={<CloudDashboard />} />
           <Route path="/dashboard.html" element={<CloudDashboard />} />
         </Routes>
