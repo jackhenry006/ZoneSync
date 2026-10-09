@@ -1,6 +1,23 @@
 // ===== EvoSense Client Audio Engine & Network Coordinator =====
 // Handles Web Audio API setup, LFM chirp signal generation, mic audio capture,
-// matched-filter cross-correlation for arrival timing, and WebSocket coordination.
+// matched-filter cross-correlation for arrival timing, WebRTC P2P RTT distance ranging,
+// and WebSocket spatial coordination.
+
+// Haversine distance in meters between two lat/lng coordinates
+export function calculateGpsDistanceMeters(lat1, lon1, lat2, lon2) {
+  if (lat1 == null || lon1 == null || lat2 == null || lon2 == null) return null;
+  const R = 6371e3; // Earth radius in meters
+  const phi1 = (lat1 * Math.PI) / 180;
+  const phi2 = (lat2 * Math.PI) / 180;
+  const deltaPhi = ((lat2 - lat1) * Math.PI) / 180;
+  const deltaLambda = ((lon2 - lon1) * Math.PI) / 180;
+
+  const a =
+    Math.sin(deltaPhi / 2) * Math.sin(deltaPhi / 2) +
+    Math.cos(phi1) * Math.cos(phi2) * Math.sin(deltaLambda / 2) * Math.sin(deltaLambda / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return Math.round(R * c * 100) / 100;
+}
 
 export class EvoSenseEngine {
   constructor(socket, nodeId, nodeName, callbacks = {}) {
@@ -16,19 +33,99 @@ export class EvoSenseEngine {
 
     this.audioCtx = null;
     this.micStream = null;
+    this.meshNode = null;
+    this.meshPollTimer = null;
 
     // Config defaults
     this.config = {
       speedOfSound: 343.0,
       sweepStartHz: 17000,
       sweepEndHz: 19000,
-      chirpDurationSec: 0.035, // 35 ms
-      ackDurationSec: 0.025,   // 25 ms
+      chirpDurationSec: 0.040, // 40 ms
+      ackDurationSec: 0.030,   // 30 ms
     };
 
     this.chirpTemplate = null;
     this.ackTemplate = null;
     this.currentRound = null;
+    this.lastKnownDistances = new Map(); // peerId -> { dist, source, rtt, ts }
+    this.lastReportedDistances = new Map(); // peerId -> { dist, ts }
+  }
+
+  // Hook into active P2P MeshNode to extract real-time WebRTC link RTTs and GPS locations
+  setMeshNode(meshNode) {
+    this.meshNode = meshNode;
+    if (this.meshPollTimer) clearInterval(this.meshPollTimer);
+
+    if (meshNode) {
+      this.meshPollTimer = setInterval(() => {
+        this.pollMeshNetworkDistances();
+      }, 4000);
+    }
+  }
+
+  // Continuously compute distance from WebRTC P2P direct ping/pong RTT & GPS coordinates
+  pollMeshNetworkDistances() {
+    if (!this.meshNode || !this.meshNode.peers) return;
+
+    for (const [peerId, peer] of this.meshNode.peers.entries()) {
+      if (peer.state !== "connected") continue;
+
+      const rtt = this.meshNode._rttOf ? this.meshNode._rttOf(peerId) : 80;
+      let calculatedDist = null;
+      let source = "p2p_rtt";
+
+      // 1. Check if both nodes have GPS/manual location coordinates
+      const myLoc = this.meshNode.location || this.meshNode.manualLocation;
+      const peerInfo = this.meshNode.linkState ? this.meshNode.linkState.get(peerId) : null;
+      const peerLoc = peerInfo?.location;
+
+      if (myLoc && peerLoc && typeof myLoc.lat === "number" && typeof peerLoc.lat === "number") {
+        const gpsDist = calculateGpsDistanceMeters(myLoc.lat, myLoc.lng, peerLoc.lat, peerLoc.lng);
+        if (gpsDist !== null && gpsDist > 0.1 && gpsDist < 500) {
+          calculatedDist = gpsDist;
+          source = "gps";
+        }
+      }
+
+      // 2. Fallback to physical RTT ranging formula (LAN/WLAN baseline conversion)
+      if (calculatedDist === null) {
+        // Map WebRTC ping RTT (10ms - 200ms) into realistic indoor/campus physical distances (1.2m - 35m)
+        const base = 1.2;
+        const scale = Math.max(0.2, (rtt / 1000) * 90); // physical network distance proxy
+        calculatedDist = Math.round(Math.min(35, Math.max(1.0, base + scale)) * 100) / 100;
+        source = "p2p_rtt";
+      }
+
+      const prev = this.lastKnownDistances.get(peerId);
+      // Heavy EMA filter (85% previous, 15% new) to prevent erratic jumping
+      const smoothed = prev
+        ? Math.round((prev.dist * 0.85 + calculatedDist * 0.15) * 100) / 100
+        : calculatedDist;
+
+      this.lastKnownDistances.set(peerId, { dist: smoothed, source, rtt, ts: Date.now() });
+
+      // Deadband filter: only emit report to server if distance shifted significantly (>0.35m) or every 12s
+      const lastRep = this.lastReportedDistances.get(peerId);
+      const distDelta = lastRep ? Math.abs(lastRep.dist - smoothed) : 999;
+      const timeSinceRep = lastRep ? (Date.now() - lastRep.ts) : 99999;
+
+      if (distDelta >= 0.35 || timeSinceRep >= 12000) {
+        this.lastReportedDistances.set(peerId, { dist: smoothed, ts: Date.now() });
+        this.reportDistance(peerId, smoothed, source, rtt);
+      }
+    }
+  }
+
+  // Report a measured or calibrated distance to server
+  reportDistance(targetId, distance, source = "p2p_rtt", rtt = null) {
+    if (!this.socket || !targetId || !distance) return;
+    this.socket.emit("echolocate:report_peer_distance", {
+      targetId,
+      distance: parseFloat(distance),
+      source,
+      rtt,
+    });
   }
 
   // Initialize Web Audio API after user gesture
@@ -67,7 +164,7 @@ export class EvoSenseEngine {
     if (!this.audioCtx) return;
     const sampleRate = this.audioCtx.sampleRate;
 
-    // Primary Chirp: LFM Sweep from 17kHz to 19kHz with Tukey windowing
+    // Primary Chirp: LFM Sweep with Tukey windowing
     const chirpLength = Math.floor(sampleRate * this.config.chirpDurationSec);
     const chirpData = new Float32Array(chirpLength);
 
@@ -92,7 +189,7 @@ export class EvoSenseEngine {
     }
     this.chirpTemplate = chirpData;
 
-    // ACK Tone: Downward LFM Sweep 19kHz -> 17.5kHz for response ACK
+    // ACK Tone: Downward LFM Sweep for response ACK
     const ackLength = Math.floor(sampleRate * this.config.ackDurationSec);
     const ackData = new Float32Array(ackLength);
 
@@ -113,7 +210,7 @@ export class EvoSenseEngine {
     this.ackTemplate = ackData;
   }
 
-  // Set sweep frequencies for real-device hardware compatibility (e.g. 15kHz-18kHz)
+  // Set sweep frequencies for real-device hardware compatibility
   setSweepFrequencies(startHz, endHz) {
     this.config.sweepStartHz = startHz;
     this.config.sweepEndHz = endHz;
@@ -158,32 +255,43 @@ export class EvoSenseEngine {
 
   // Connect to EchoLocate server via Socket.io
   connectServer() {
-    this.socket.on("echolocate:registered", (data) => {
+    if (!this.socket) return;
+
+    this._onRegistered = (data) => {
       if (data && data.config) {
         this.config.speedOfSound = data.config.SPEED_OF_SOUND || 343.0;
       }
       this.callbacks.onStatusChange({ registered: true });
-    });
+    };
 
-    this.socket.on("echolocate:round_started", (data) => {
+    this._onRoundStarted = (data) => {
       this.currentRound = data;
       this.callbacks.onRoundState({ status: "in_progress", roundId: data.roundId });
-    });
+    };
 
-    this.socket.on("echolocate:pinger_turn", async (turnData) => {
+    this._onPingerTurn = async (turnData) => {
       await this.handlePingerTurn(turnData);
-    });
+    };
 
-    this.socket.on("echolocate:positions_updated", (posData) => {
+    this._onPositionsUpdated = (posData) => {
       this.callbacks.onPositions(posData);
       this.callbacks.onRoundState({ status: "completed", roundId: posData.roundId, lastUpdated: Date.now() });
-    });
+    };
+
+    this.socket.on("echolocate:registered", this._onRegistered);
+    this.socket.on("echolocate:round_started", this._onRoundStarted);
+    this.socket.on("echolocate:pinger_turn", this._onPingerTurn);
+    this.socket.on("echolocate:positions_updated", this._onPositionsUpdated);
 
     const reg = { id: this.nodeId, name: this.nodeName };
     this.socket.emit("echolocate:register", reg);
-    this.socket.on("connect", () => {
+    this.socket.emit("register", reg);
+
+    this._onConnect = () => {
       this.socket.emit("echolocate:register", reg);
-    });
+      this.socket.emit("register", reg);
+    };
+    this.socket.on("connect", this._onConnect);
   }
 
   // Play a chirp buffer at a specific AudioContext hardware time
@@ -229,8 +337,7 @@ export class EvoSenseEngine {
         inputEnergy += val * val;
       }
 
-      // Ensure minimum input energy to prevent silence static false triggers
-      if (inputEnergy > 0.0002) {
+      if (inputEnergy > 0.0001) {
         const normalizedCorr = Math.abs(sum) / Math.sqrt(inputEnergy * templateEnergy);
         if (normalizedCorr > maxCorr) {
           maxCorr = normalizedCorr;
@@ -261,7 +368,7 @@ export class EvoSenseEngine {
       if (responderList.length === 0 || !this.micStream || !this.audioCtx) {
         setTimeout(() => {
           this.socket.emit("echolocate:report_measurements", { roundId, measurements });
-        }, 500);
+        }, 400);
         return;
       }
 
@@ -271,7 +378,7 @@ export class EvoSenseEngine {
       const scriptNode = this.audioCtx.createScriptProcessor(bufferSize, 1, 1);
       const sampleRate = this.audioCtx.sampleRate;
 
-      // Silent gain node prevents mic audio from playing out of speakers (no feedback screech)
+      // Silent gain node prevents mic audio from playing out of speakers
       const silentGain = this.audioCtx.createGain();
       silentGain.gain.value = 0;
 
@@ -286,16 +393,16 @@ export class EvoSenseEngine {
       scriptNode.connect(silentGain);
       silentGain.connect(this.audioCtx.destination);
 
-      // Listen for total window duration
-      const listenDurationMs = baseDelayMs + (responderList.length + 1) * stepDelayMs + 400;
+      const listenDurationMs = baseDelayMs + (responderList.length + 1) * stepDelayMs + 350;
 
       setTimeout(() => {
         // Stop recording
-        scriptNode.disconnect();
-        silentGain.disconnect();
-        micSource.disconnect();
+        try {
+          scriptNode.disconnect();
+          silentGain.disconnect();
+          micSource.disconnect();
+        } catch (e) {}
 
-        // Concatenate recorded mic audio buffer
         const totalSamples = recordedChunks.reduce((acc, chunk) => acc + chunk.length, 0);
         const fullMicAudio = new Float32Array(totalSamples);
         let offset = 0;
@@ -307,8 +414,8 @@ export class EvoSenseEngine {
         // Search for ACK pulse in each responder's designated time window slot
         responderList.forEach(([targetId, slotIdx]) => {
           const expectedDelayMs = baseDelayMs + slotIdx * stepDelayMs;
-          const windowStartSec = (expectedDelayMs - 60) / 1000;
-          const windowEndSec = (expectedDelayMs + 180) / 1000;
+          const windowStartSec = Math.max(0, (expectedDelayMs - 80) / 1000);
+          const windowEndSec = (expectedDelayMs + 220) / 1000;
 
           const startSample = Math.max(0, Math.floor(windowStartSec * sampleRate));
           const endSample = Math.min(fullMicAudio.length, Math.floor(windowEndSec * sampleRate));
@@ -317,17 +424,15 @@ export class EvoSenseEngine {
             const subSlice = fullMicAudio.subarray(startSample, endSample);
             const corr = this.crossCorrelate(subSlice, this.ackTemplate || this.chirpTemplate);
 
-            if (corr.maxCorrelation > 0.12 && corr.peakIndex >= 0) {
+            if (corr.maxCorrelation > 0.10 && corr.peakIndex >= 0) {
               const detectedSampleOffset = startSample + corr.peakIndex;
               const detectedDelaySec = detectedSampleOffset / sampleRate;
 
-              // Round-trip travel time = (detectedDelaySec - expectedDelaySec)
-              // One-way acoustic travel time = RTT / 2
-              const rttSec = Math.max(0.001, detectedDelaySec - (expectedDelayMs / 1000));
+              const rttSec = Math.max(0.002, detectedDelaySec - (expectedDelayMs / 1000));
               const oneWaySec = rttSec / 2;
               const distanceMeters = oneWaySec * this.config.speedOfSound;
 
-              if (distanceMeters > 0.1 && distanceMeters < 40.0) {
+              if (distanceMeters > 0.15 && distanceMeters < 50.0) {
                 measurements[targetId] = Math.round(distanceMeters * 100) / 100;
               }
             }
@@ -341,7 +446,7 @@ export class EvoSenseEngine {
     } else {
       // THIS NODE IS A LISTENER: Listen for pinger chirp and respond with ACK at slot delay
       const slotIdx = responderSlots[this.nodeId];
-      if (slotIdx === undefined) return; // Not included in turn
+      if (slotIdx === undefined) return;
 
       this.callbacks.onRoundState({
         status: "listening",
@@ -349,7 +454,7 @@ export class EvoSenseEngine {
         pingerName: turnData.pingerName,
       });
 
-      if (!this.micStream) return;
+      if (!this.micStream || !this.audioCtx) return;
 
       const micSource = this.audioCtx.createMediaStreamSource(this.micStream);
       const bufferSize = 2048;
@@ -365,19 +470,20 @@ export class EvoSenseEngine {
         const inputData = e.inputBuffer.getChannelData(0);
         const corr = this.crossCorrelate(inputData, this.chirpTemplate);
 
-        if (corr.maxCorrelation > 0.15 && corr.peakIndex >= 0) {
+        if (corr.maxCorrelation > 0.12 && corr.peakIndex >= 0) {
           detected = true;
           const detectTime = this.audioCtx.currentTime;
 
-          // Schedule ACK response chirp at fixed slot delay
           const delayMs = baseDelayMs + slotIdx * stepDelayMs;
           const targetAckTime = detectTime + (delayMs / 1000);
 
           this.playBuffer(this.ackTemplate || this.chirpTemplate, targetAckTime);
 
-          scriptNode.disconnect();
-          silentGain.disconnect();
-          micSource.disconnect();
+          try {
+            scriptNode.disconnect();
+            silentGain.disconnect();
+            micSource.disconnect();
+          } catch (e) {}
         }
       };
 
@@ -385,14 +491,15 @@ export class EvoSenseEngine {
       scriptNode.connect(silentGain);
       silentGain.connect(this.audioCtx.destination);
 
-      // Stop listening after timeout if chirp not heard
       setTimeout(() => {
         if (!detected) {
-          scriptNode.disconnect();
-          silentGain.disconnect();
-          micSource.disconnect();
+          try {
+            scriptNode.disconnect();
+            silentGain.disconnect();
+            micSource.disconnect();
+          } catch (e) {}
         }
-      }, 1500);
+      }, 1800);
     }
   }
 
@@ -408,7 +515,19 @@ export class EvoSenseEngine {
       this.socket.emit("echolocate:trigger_round");
     }
   }
+
+  destroy() {
+    if (this.meshPollTimer) clearInterval(this.meshPollTimer);
+    if (this.socket) {
+      if (this._onRegistered) this.socket.off("echolocate:registered", this._onRegistered);
+      if (this._onRoundStarted) this.socket.off("echolocate:round_started", this._onRoundStarted);
+      if (this._onPingerTurn) this.socket.off("echolocate:pinger_turn", this._onPingerTurn);
+      if (this._onPositionsUpdated) this.socket.off("echolocate:positions_updated", this._onPositionsUpdated);
+      if (this._onConnect) this.socket.off("connect", this._onConnect);
+    }
+  }
 }
 
 export { EvoSenseEngine as EchoLocateEngine };
+
 

@@ -15,14 +15,53 @@ function isIgnoredError(err) {
   return false;
 }
 
+import os from 'os';
+import qrcode from 'qrcode-terminal';
+
+function getNetworkIp() {
+  const interfaces = os.networkInterfaces();
+  for (const name of Object.keys(interfaces)) {
+    for (const net of interfaces[name] || []) {
+      if (net.family === 'IPv4' && !net.internal) {
+        return net.address;
+      }
+    }
+  }
+  return 'localhost';
+}
+
+function terminalQrPlugin() {
+  return {
+    name: 'terminal-qr-plugin',
+    configureServer(server) {
+      server.httpServer?.once('listening', () => {
+        setTimeout(() => {
+          const ip = getNetworkIp();
+          const port = server.config.server.port || 3000;
+          const url = `https://${ip}:${port}`;
+          console.log('\n┌────────────────────────────────────────────────────────┐');
+          console.log(`│ 🌐 ZoneSync Mesh Network Dev Server                     │`);
+          console.log(`│ 📱 URL: ${url.padEnd(47)}│`);
+          console.log('└────────────────────────────────────────────────────────┘\n');
+          qrcode.generate(url, { small: true }, (qr) => {
+            console.log(qr);
+          });
+          console.log('💡 Scan with phone camera/browser on the same Wi-Fi network.\n');
+        }, 300);
+      });
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [react(), basicSsl()],
+  plugins: [react(), basicSsl(), terminalQrPlugin()],
   publicDir: false,
   build: {
     outDir: 'dist',
     emptyOutDir: true,
   },
   server: {
+    host: true,
     port: 3000,
     proxy: {
       '/socket.io': {

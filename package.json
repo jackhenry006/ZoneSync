@@ -5,6 +5,7 @@
   "scripts": {
     "postinstall": "cd mesh-network-p2p/mesh-network-p2p && npm install",
     "build": "cd mesh-network-p2p/mesh-network-p2p && npm install && npm run build",
-    "start": "node signaling-server.js"
+    "start": "node signaling-server.js",
+    "qr": "cd mesh-network-p2p/mesh-network-p2p && node show-qr.js"
   }
 }

@@ -272,5 +272,11 @@ io.on("connection", (socket) => {
 const PORT = process.env.PORT || 4001;
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`CrisisLink Unified Server running on http://0.0.0.0:${PORT}`);
+  try {
+    const { printNetworkQr } = require("./show-qr.js");
+    printNetworkQr({ port: PORT, protocol: "http", title: "CrisisLink Signaling & Backend Server" });
+  } catch (err) {
+    // Ignore if show-qr helper unavailable
+  }
 });
 

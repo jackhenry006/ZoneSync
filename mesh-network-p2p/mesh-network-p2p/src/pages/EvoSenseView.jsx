@@ -34,7 +34,7 @@ export function EvoSenseView() {
       return false;
     }
   });
-  const meshRef = useRef(null);
+  const [meshInstance, setMeshInstance] = useState(null);
 
   // Automatically connect to ConnectX P2P Mesh Network in background when joined
   useEffect(() => {
@@ -55,12 +55,12 @@ export function EvoSenseView() {
       onMediaDelivered: () => {},
     });
 
-    meshRef.current = mesh;
+    setMeshInstance(mesh);
     mesh.register();
 
     return () => {
       mesh.destroy();
-      meshRef.current = null;
+      setMeshInstance(null);
     };
   }, [joined, name, socket, selfId]);
 
@@ -82,7 +82,7 @@ export function EvoSenseView() {
 
   return (
     <div className="evosense-view-wrapper">
-      <EvoSensePanel socket={socket} selfId={selfId} selfName={name} />
+      <EvoSensePanel socket={socket} selfId={selfId} selfName={name} meshNode={meshInstance} />
     </div>
   );
 }

@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { EvoSenseEngine } from "../services/evoSense.js";
 
-export function EvoSensePanel({ socket, selfId, selfName }) {
+export function EvoSensePanel({ socket, selfId, selfName, meshNode }) {
   const canvasRef = useRef(null);
   const engineRef = useRef(null);
 
@@ -30,8 +30,10 @@ export function EvoSensePanel({ socket, selfId, selfName }) {
 
   const [sweepRange, setSweepRange] = useState("17-19");
   const [secondsAgo, setSecondsAgo] = useState(null);
+  const [selectedTargetPeer, setSelectedTargetPeer] = useState("");
+  const [calibratedDistance, setCalibratedDistance] = useState(3.0);
 
-  // 3D Projection Camera State & Live Refs (Stable Fixed Orbit View - No Drag / No Pinch)
+  // 3D Projection Camera State & Live Refs (Stable Fixed Orbit View)
   const [autoRotate, setAutoRotate] = useState(true);
 
   const yawRef = useRef(45);
@@ -62,13 +64,45 @@ export function EvoSensePanel({ socket, selfId, selfName }) {
     const engine = new EvoSenseEngine(socket, selfId, selfName || "Device", {
       onStatusChange: (st) => setEngineStatus((prev) => ({ ...prev, ...st })),
       onRoundState: (rst) => setRoundState((prev) => ({ ...prev, ...rst })),
-      onPositions: (pos) => setPositionsData(pos),
+      onPositions: (pos) => {
+        setPositionsData((prev) => {
+          if (!prev || !prev.positions) return pos;
+          const mergedPositions = { ...pos.positions };
+          Object.keys(mergedPositions).forEach((id) => {
+            const oldP = prev.positions[id];
+            const newP = mergedPositions[id];
+            if (oldP && newP) {
+              const dx = Math.abs(oldP.x - newP.x);
+              const dy = Math.abs(oldP.y - newP.y);
+              // Ignore micro jitter under 5cm to keep coordinates steady
+              if (dx < 0.05 && dy < 0.05) {
+                mergedPositions[id] = { ...newP, x: oldP.x, y: oldP.y };
+              }
+            }
+          });
+          return { ...pos, positions: mergedPositions };
+        });
+      },
       onError: (err) => console.warn("[EchoLocate]", err),
     });
 
     engineRef.current = engine;
+    if (meshNode) {
+      engine.setMeshNode(meshNode);
+    }
     engine.connectServer();
+
+    return () => {
+      engine.destroy();
+    };
   }, [socket, selfId, selfName]);
+
+  // Keep meshNode synced with engine
+  useEffect(() => {
+    if (engineRef.current && meshNode) {
+      engineRef.current.setMeshNode(meshNode);
+    }
+  }, [meshNode]);
 
   // Update "last updated Xs ago" timer
   useEffect(() => {
@@ -149,7 +183,7 @@ export function EvoSensePanel({ socket, selfId, selfName }) {
       sweepAngle = (sweepAngle + 0.02) % (Math.PI * 2);
 
       // 1. Draw 3D Ground Plane Subtle Concentric Rings & Grid
-      const rings = [1, 2, 3, 5, 8, 12];
+      const rings = [1, 2, 3, 5, 8, 12, 18];
       rings.forEach((rMeters) => {
         ctx.beginPath();
         ctx.strokeStyle = "rgba(255, 176, 0, 0.12)";
@@ -232,19 +266,23 @@ export function EvoSensePanel({ socket, selfId, selfName }) {
       const distancesList = currentPositions.distances || [];
 
       // 4. Draw 3D Pairwise Distance Vectors in Amber
-      distancesList.forEach(({ from, to, dist }) => {
-        const posA = currentPositions.positions[from];
-        const posB = currentPositions.positions[to];
+      distancesList.forEach(({ from, to, dist, source }) => {
+        const posA = currentPositions.positions?.[from];
+        const posB = currentPositions.positions?.[to];
         if (posA && posB) {
-          const zA = posA.z || 0;
-          const zB = posB.z || 0;
-          const pA = project3D(posA.x, posA.y, zA, centerX, centerY, currentYaw, currentPitch, currentZoom);
-          const pB = project3D(posB.x, posB.y, zB, centerX, centerY, currentYaw, currentPitch, currentZoom);
+          const zA = typeof posA.z === "number" && !isNaN(posA.z) ? posA.z : 0;
+          const zB = typeof posB.z === "number" && !isNaN(posB.z) ? posB.z : 0;
+          const xA = typeof posA.x === "number" && !isNaN(posA.x) ? posA.x : 0;
+          const yA = typeof posA.y === "number" && !isNaN(posA.y) ? posA.y : 0;
+          const xB = typeof posB.x === "number" && !isNaN(posB.x) ? posB.x : 0;
+          const yB = typeof posB.y === "number" && !isNaN(posB.y) ? posB.y : 0;
+          const pA = project3D(xA, yA, zA, centerX, centerY, currentYaw, currentPitch, currentZoom);
+          const pB = project3D(xB, yB, zB, centerX, centerY, currentYaw, currentPitch, currentZoom);
 
           ctx.beginPath();
-          ctx.strokeStyle = "rgba(255, 176, 0, 0.45)";
-          ctx.lineWidth = 1.5;
-          ctx.setLineDash([4, 4]);
+          ctx.strokeStyle = source === "acoustic" ? "rgba(34, 197, 94, 0.75)" : source === "gps" ? "rgba(56, 189, 248, 0.7)" : "rgba(255, 176, 0, 0.55)";
+          ctx.lineWidth = source === "acoustic" ? 2.2 : 1.5;
+          ctx.setLineDash(source === "acoustic" ? [] : [4, 4]);
           ctx.moveTo(pA.px, pA.py);
           ctx.lineTo(pB.px, pB.py);
           ctx.stroke();
@@ -253,27 +291,30 @@ export function EvoSensePanel({ socket, selfId, selfName }) {
           // 3D Midpoint Distance Badge
           const midPx = (pA.px + pB.px) / 2;
           const midPy = (pA.py + pB.py) / 2;
-          ctx.fillStyle = "rgba(27, 31, 34, 0.9)";
-          ctx.fillRect(midPx - 18, midPy - 10, 36, 16);
-          ctx.strokeStyle = "rgba(255, 176, 0, 0.5)";
+          ctx.fillStyle = "rgba(27, 31, 34, 0.92)";
+          ctx.fillRect(midPx - 22, midPy - 11, 44, 18);
+          ctx.strokeStyle = source === "acoustic" ? "#22C55E" : "#FFB000";
           ctx.lineWidth = 1;
-          ctx.strokeRect(midPx - 18, midPy - 10, 36, 16);
+          ctx.strokeRect(midPx - 22, midPy - 11, 44, 18);
 
-          ctx.fillStyle = "#FFB000";
-          ctx.font = "bold 10px 'IBM Plex Mono', monospace";
+          const displayDist = typeof dist === "number" && !isNaN(dist) ? dist.toFixed(2) : Number(dist || 0).toFixed(2);
+          ctx.fillStyle = source === "acoustic" ? "#22C55E" : "#FFB000";
+          ctx.font = "bold 10.5px 'IBM Plex Mono', monospace";
           ctx.textAlign = "center";
-          ctx.fillText(`${dist}m`, midPx, midPy + 2);
+          ctx.fillText(`${displayDist}m`, midPx, midPy + 2);
           ctx.textAlign = "left";
         }
       });
 
       // Sort nodes by 3D depth for back-to-front rendering
       const sortedNodes = nodeEntries.map(([nodeId, pos]) => {
-        const z = pos.z || 0;
-        const projected = project3D(pos.x, pos.y, z, centerX, centerY, currentYaw, currentPitch, currentZoom);
-        const groundP = project3D(pos.x, pos.y, 0, centerX, centerY, currentYaw, currentPitch, currentZoom);
-        return { nodeId, pos, z, projected, groundP };
-      }).sort((a, b) => a.projected.depth - b.projected.depth);
+        const z = typeof pos?.z === "number" && !isNaN(pos.z) ? pos.z : 0;
+        const x = typeof pos?.x === "number" && !isNaN(pos.x) ? pos.x : 0;
+        const y = typeof pos?.y === "number" && !isNaN(pos.y) ? pos.y : 0;
+        const projected = project3D(x, y, z, centerX, centerY, currentYaw, currentPitch, currentZoom);
+        const groundP = project3D(x, y, 0, centerX, centerY, currentYaw, currentPitch, currentZoom);
+        return { nodeId, pos: { ...pos, x, y, z }, z, projected, groundP };
+      }).sort((a, b) => (a.projected?.depth || 0) - (b.projected?.depth || 0));
 
       // 5. Draw 3D Nodes, Ground Shadows, and Laser Height Tethers
       sortedNodes.forEach(({ nodeId, pos, z, projected, groundP }) => {
@@ -351,10 +392,10 @@ export function EvoSensePanel({ socket, selfId, selfName }) {
         ctx.fillStyle = "rgba(240, 244, 252, 0.85)";
         ctx.font = "bold 16px sans-serif";
         ctx.textAlign = "center";
-        ctx.fillText("Waiting for acoustic 3D spatial localization round...", centerX, centerY - 15);
+        ctx.fillText("Waiting for EvoSense spatial localization...", centerX, centerY - 15);
         ctx.font = "14px sans-serif";
         ctx.fillStyle = "rgba(240, 244, 252, 0.6)";
-        ctx.fillText("Click '⚡ Simulate 3D Multi-Floor Plot' below for instant 3D spatial plot", centerX, centerY + 14);
+        ctx.fillText("Connect another device or click '⚡ Simulate Live 3D Nodes' below", centerX, centerY + 14);
         ctx.textAlign = "left";
       }
 
@@ -410,10 +451,10 @@ export function EvoSensePanel({ socket, selfId, selfName }) {
         [id4]: { x: -2.1, y: 1.8, z: 3.5, name: "Charlie's Drone (Floor 2)" },
       },
       distances: [
-        { from: id1, to: id2, dist: 2.94 },
-        { from: id1, to: id3, dist: 2.68 },
-        { from: id2, to: id3, dist: 2.81 },
-        { from: id1, to: id4, dist: 4.58 },
+        { from: id1, to: id2, dist: 2.94, source: "acoustic" },
+        { from: id1, to: id3, dist: 2.68, source: "p2p_rtt" },
+        { from: id2, to: id3, dist: 2.81, source: "p2p_rtt" },
+        { from: id1, to: id4, dist: 4.58, source: "gps" },
       ],
     });
 
@@ -429,7 +470,9 @@ export function EvoSensePanel({ socket, selfId, selfName }) {
     const val = e.target.value;
     setSweepRange(val);
     if (!engineRef.current) return;
-    if (val === "15-18") {
+    if (val === "3-6") {
+      engineRef.current.setSweepFrequencies(3000, 6000);
+    } else if (val === "15-18") {
       engineRef.current.setSweepFrequencies(15000, 18000);
     } else if (val === "16-20") {
       engineRef.current.setSweepFrequencies(16000, 20000);
@@ -438,24 +481,34 @@ export function EvoSensePanel({ socket, selfId, selfName }) {
     }
   }
 
+  function handleApplyDistanceCalibration(peerId, dist) {
+    if (!engineRef.current || !peerId) return;
+    const num = parseFloat(dist);
+    if (isNaN(num) || num <= 0) return;
+    engineRef.current.reportDistance(peerId, num, "calibrated");
+  }
+
+  // Get list of other nodes detected in positions
+  const otherNodes = Object.entries(positionsData.positions || {}).filter(([id]) => id !== selfId);
+
   return (
     <div className="echolocate-container">
       {/* EchoLocate Header Banner */}
       <div className="echolocate-header">
         <div className="echolocate-title">
-          <h2>📡 EvoSense</h2>
+          <h2>📡 EvoSense Acoustic & P2P Spatial Positioning</h2>
         </div>
 
         {/* Status Indicators */}
         <div className="echolocate-round-status">
           {roundState.status === "in_progress" && (
             <span className="status-tag status-progress">
-              ● Round in progress ({roundState.pingerName} chirping...)
+              ● Ranging in progress ({roundState.pingerName} chirping...)
             </span>
           )}
           {roundState.status === "chirping_self" && (
             <span className="status-tag status-chirp">
-              🔊 Emitting Chirp & Listening...
+              🔊 Emitting Chirp & Timing Response...
             </span>
           )}
           {roundState.status === "listening" && (
@@ -470,7 +523,7 @@ export function EvoSensePanel({ socket, selfId, selfName }) {
           )}
           {roundState.status === "idle" && (
             <span className="status-tag status-idle">
-              ○ Waiting for next round ({secondsAgo !== null ? `Last updated ${secondsAgo}s ago` : "No round data yet"})
+              ○ Live Tracking ({secondsAgo !== null ? `Last updated ${secondsAgo}s ago` : "Waiting for peers"})
             </span>
           )}
         </div>
@@ -481,7 +534,7 @@ export function EvoSensePanel({ socket, selfId, selfName }) {
         <div className="control-group">
           {!engineStatus.audioReady || !engineStatus.micActive ? (
             <button className="primary-btn pulse" onClick={handleActivateAudio}>
-              🎤 Activate Mic & Audio Context
+              🎤 Activate Mic & Web Audio
             </button>
           ) : (
             <span className="mic-active-badge">✓ Mic & Audio Active</span>
@@ -492,7 +545,7 @@ export function EvoSensePanel({ socket, selfId, selfName }) {
           </button>
 
           <button className="secondary-btn" onClick={handleTriggerRound}>
-            ↻ Run 3D Round
+            ↻ Run Acoustic Round
           </button>
 
           <button
@@ -500,17 +553,18 @@ export function EvoSensePanel({ socket, selfId, selfName }) {
             style={{ borderColor: "var(--accent-primary)", color: "var(--accent-primary)", fontWeight: 700 }}
             onClick={handleSimulateDemo3D}
           >
-            ⚡ Simulate 3D Multi-Floor Plot
+            ⚡ Simulate Live 3D Nodes
           </button>
         </div>
 
         <div className="control-group">
           <label className="sweep-label">
-            Frequency Sweep:
+            Frequency Range:
             <select value={sweepRange} onChange={handleSweepChange} className="sweep-select">
-              <option value="17-19">17 kHz – 19 kHz (Default)</option>
-              <option value="15-18">15 kHz – 18 kHz (Phone Compatible)</option>
-              <option value="16-20">16 kHz – 20 kHz (Wide Range)</option>
+              <option value="3-6">3 kHz – 6 kHz (Audible Test - All Devices)</option>
+              <option value="15-18">15 kHz – 18 kHz (Mobile Friendly)</option>
+              <option value="17-19">17 kHz – 19 kHz (Ultrasonic Default)</option>
+              <option value="16-20">16 kHz – 20 kHz (Wide Band)</option>
             </select>
           </label>
         </div>
@@ -519,8 +573,8 @@ export function EvoSensePanel({ socket, selfId, selfName }) {
       {/* Insecure Context Alert */}
       {isLocalIpInsecure && (
         <div className="echolocate-error-banner" style={{ background: "rgba(240, 166, 60, 0.15)", color: "#F0A63C", borderColor: "rgba(240, 166, 60, 0.3)" }}>
-          🔒 <strong>Browser Security Notice:</strong> Unencrypted HTTP over local IP (<code>{window.location.host}</code>) disables microphone access.<br />
-          Click <strong>"⚡ Simulate 3D Multi-Floor Plot"</strong> above to test 3D spatial canvas rendering!
+          🔒 <strong>Browser Security Notice:</strong> Unencrypted HTTP over LAN IP disables microphone.<br />
+          EvoSense is automatically using <strong>WebRTC P2P Ping RTT Ranging</strong> to compute real distances!
         </div>
       )}
 
@@ -532,7 +586,7 @@ export function EvoSensePanel({ socket, selfId, selfName }) {
         />
       </div>
 
-      {/* 3D Orbit Control Bar (Placed Below 3D View) */}
+      {/* 3D Orbit Control Bar */}
       <div className="canvas-bottom-bar">
         <button
           className={`hud-orbit-btn ${autoRotate ? "active" : ""}`}
@@ -541,12 +595,197 @@ export function EvoSensePanel({ socket, selfId, selfName }) {
           {autoRotate ? "⏸ 3D Orbiting (Pause)" : "▶ Start 3D Orbit"}
         </button>
         <span className="canvas-bottom-hint">
-          Stable 3D Spatial View ({autoRotate ? "Auto-Rotating 35° tilt" : "Paused Fixed Angle"})
+          {autoRotate ? "Auto-Rotating 35° tilt orbit view" : "Paused fixed angle view"}
         </span>
+      </div>
+
+      {/* Live Peer Distance & Ranging Matrix */}
+      <div className="evosense-distance-table-card" style={{
+        marginTop: "14px",
+        background: "var(--surface-card, #1B1F22)",
+        borderRadius: "12px",
+        border: "1px solid var(--border-color, rgba(255, 255, 255, 0.1))",
+        padding: "16px",
+        boxShadow: "0 4px 20px rgba(0,0,0,0.4)"
+      }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px", flexWrap: "wrap", gap: "8px" }}>
+          <h3 style={{ margin: 0, fontSize: "15px", color: "var(--text-primary, #FFFFFF)", display: "flex", alignItems: "center", gap: "8px" }}>
+            <span>📏 Live Peer Distances & Multilateration Status</span>
+            <span style={{ fontSize: "12px", padding: "2px 8px", background: "rgba(255, 176, 0, 0.15)", color: "#FFB000", borderRadius: "12px", fontWeight: "bold" }}>
+              {positionsData.distances?.length || 0} Distance Vectors
+            </span>
+          </h3>
+          <span style={{ fontSize: "12px", color: "var(--text-muted, rgba(255,255,255,0.6))" }}>
+            Speed of Sound: {positionsData.speedOfSound || 343.0} m/s
+          </span>
+        </div>
+
+        {positionsData.distances?.length > 0 ? (
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px", textAlign: "left" }}>
+              <thead>
+                <tr style={{ borderBottom: "1px solid rgba(255,255,255,0.1)", color: "var(--text-secondary, #A0AEC0)" }}>
+                  <th style={{ padding: "8px 10px" }}>Node Pair</th>
+                  <th style={{ padding: "8px 10px" }}>Real Distance</th>
+                  <th style={{ padding: "8px 10px" }}>Ranging Method</th>
+                  <th style={{ padding: "8px 10px" }}>Relative (X, Y)</th>
+                  <th style={{ padding: "8px 10px" }}>Calibrate Distance</th>
+                </tr>
+              </thead>
+              <tbody>
+                {positionsData.distances.map((d, idx) => {
+                  const nodeA = positionsData.positions[d.from];
+                  const nodeB = positionsData.positions[d.to];
+                  const nameA = nodeA?.name || d.from;
+                  const nameB = nodeB?.name || d.to;
+                  const otherId = d.from === selfId ? d.to : d.from;
+
+                  return (
+                    <tr key={idx} style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
+                      <td style={{ padding: "10px", fontWeight: "bold", color: "#FFFFFF" }}>
+                        {nameA} ↔ {nameB}
+                      </td>
+                      <td style={{ padding: "10px" }}>
+                        <span style={{
+                          padding: "3px 8px",
+                          borderRadius: "6px",
+                          fontWeight: "bold",
+                          fontFamily: "monospace",
+                          fontSize: "14px",
+                          background: d.dist < 3.0 ? "rgba(34, 197, 94, 0.15)" : d.dist < 8.0 ? "rgba(255, 176, 0, 0.15)" : "rgba(56, 189, 248, 0.15)",
+                          color: d.dist < 3.0 ? "#22C55E" : d.dist < 8.0 ? "#FFB000" : "#38BDF8",
+                          border: `1px solid ${d.dist < 3.0 ? "rgba(34, 197, 94, 0.3)" : d.dist < 8.0 ? "rgba(255, 176, 0, 0.3)" : "rgba(56, 189, 248, 0.3)"}`
+                        }}>
+                          {d.dist.toFixed(2)} m
+                        </span>
+                      </td>
+                      <td style={{ padding: "10px" }}>
+                        <span style={{
+                          fontSize: "11.5px",
+                          padding: "3px 8px",
+                          borderRadius: "4px",
+                          background: d.source === "acoustic" ? "rgba(34, 197, 94, 0.2)" : d.source === "gps" ? "rgba(56, 189, 248, 0.2)" : "rgba(255, 176, 0, 0.2)",
+                          color: d.source === "acoustic" ? "#22C55E" : d.source === "gps" ? "#38BDF8" : "#FFB000"
+                        }}>
+                          {d.source === "acoustic" ? "🔊 Acoustic Chirp ToF" : d.source === "gps" ? "🛰 GPS Fix" : d.source === "calibrated" ? "🎯 Manual Calibrated" : "⚡ WebRTC P2P RTT"}
+                        </span>
+                      </td>
+                      <td style={{ padding: "10px", fontFamily: "monospace", fontSize: "12px", color: "rgba(255,255,255,0.7)" }}>
+                        {nodeB ? `(${nodeB.x.toFixed(2)}m, ${nodeB.y.toFixed(2)}m)` : "—"}
+                      </td>
+                      <td style={{ padding: "10px" }}>
+                        <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+                          {[1.5, 3.0, 6.0, 12.0].map((distPreset) => (
+                            <button
+                              key={distPreset}
+                              onClick={() => handleApplyDistanceCalibration(otherId, distPreset)}
+                              style={{
+                                padding: "3px 7px",
+                                fontSize: "11px",
+                                borderRadius: "4px",
+                                background: Math.abs(d.dist - distPreset) < 0.3 ? "var(--accent-primary, #FFB000)" : "rgba(255,255,255,0.08)",
+                                color: Math.abs(d.dist - distPreset) < 0.3 ? "#000000" : "#FFFFFF",
+                                border: "1px solid rgba(255,255,255,0.15)",
+                                cursor: "pointer",
+                                fontWeight: "600"
+                              }}
+                            >
+                              {distPreset}m
+                            </button>
+                          ))}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div style={{ padding: "20px 10px", textAlign: "center", color: "rgba(255,255,255,0.6)" }}>
+            <p style={{ margin: "0 0 8px 0", fontSize: "14px" }}>
+              No peer distance vectors reported yet. Connect another browser tab or device on your network!
+            </p>
+            <p style={{ margin: 0, fontSize: "12px", color: "var(--text-muted, rgba(255,255,255,0.4))" }}>
+              Tip: Click <strong>"⚡ Simulate Live 3D Nodes"</strong> above to preview multi-node 3D positioning!
+            </p>
+          </div>
+        )}
+
+        {/* Live Distance Calibrator Slider */}
+        {otherNodes.length > 0 && (
+          <div style={{ marginTop: "16px", paddingTop: "14px", borderTop: "1px solid rgba(255,255,255,0.1)" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "8px", flexWrap: "wrap", gap: "8px" }}>
+              <span style={{ fontSize: "13px", fontWeight: "bold", color: "var(--text-primary, #FFFFFF)" }}>
+                🎯 Fine Distance Calibrator ({selectedTargetPeer ? (positionsData.positions[selectedTargetPeer]?.name || selectedTargetPeer) : (otherNodes[0]?.[1]?.name || otherNodes[0]?.[0])}):
+              </span>
+              <span style={{ fontSize: "14px", fontWeight: "bold", color: "var(--accent-primary, #FFB000)", fontFamily: "monospace" }}>
+                {calibratedDistance} meters
+              </span>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
+              <select
+                value={selectedTargetPeer || otherNodes[0]?.[0]}
+                onChange={(e) => setSelectedTargetPeer(e.target.value)}
+                style={{
+                  padding: "6px 10px",
+                  borderRadius: "6px",
+                  background: "rgba(0,0,0,0.4)",
+                  color: "#FFFFFF",
+                  border: "1px solid rgba(255,255,255,0.2)",
+                  fontSize: "12.5px"
+                }}
+              >
+                {otherNodes.map(([id, pos]) => (
+                  <option key={id} value={id}>
+                    {pos.name || id}
+                  </option>
+                ))}
+              </select>
+
+              <input
+                type="range"
+                min="0.5"
+                max="25.0"
+                step="0.1"
+                value={calibratedDistance}
+                onChange={(e) => {
+                  const val = parseFloat(e.target.value);
+                  setCalibratedDistance(val);
+                  const target = selectedTargetPeer || otherNodes[0]?.[0];
+                  if (target) {
+                    handleApplyDistanceCalibration(target, val);
+                  }
+                }}
+                style={{ flex: 1, minWidth: "160px", accentColor: "var(--accent-primary, #FFB000)" }}
+              />
+
+              <button
+                onClick={() => {
+                  const target = selectedTargetPeer || otherNodes[0]?.[0];
+                  if (target) handleApplyDistanceCalibration(target, calibratedDistance);
+                }}
+                style={{
+                  padding: "6px 14px",
+                  borderRadius: "6px",
+                  background: "var(--accent-primary, #FFB000)",
+                  color: "#000000",
+                  border: "none",
+                  fontWeight: "bold",
+                  fontSize: "12px",
+                  cursor: "pointer"
+                }}
+              >
+                Apply Range
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
 export { EvoSensePanel as EchoLocatePanel };
+
 

@@ -11,7 +11,8 @@
     "start:signaling": "node signaling-server.js",
     "start:cloud": "node cloud-server.js",
     "start:evosense": "node evosense-server.js",
-    "start:echolocate": "node evosense-server.js"
+    "start:echolocate": "node evosense-server.js",
+    "qr": "node show-qr.js"
   },
   "keywords": [],
   "author": "",
@@ -20,6 +21,7 @@
     "cors": "^2.8.6",
     "express": "^5.2.1",
     "lucide-react": "^1.37.0",
+    "qrcode-terminal": "^0.12.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-router-dom": "^7.18.3",
